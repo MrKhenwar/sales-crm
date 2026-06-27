@@ -212,3 +212,70 @@ export function formatDuration(sec: number): string {
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
 }
+
+/** Calls currently in flight (no endedAt yet). */
+export async function listActiveCalls(opts: { userId: string; role: Role }) {
+  const where: import("@/generated/prisma/client").Prisma.CallWhereInput = {
+    endedAt: null,
+    outcome: "PENDING",
+    startedAt: { gte: new Date(Date.now() - 60 * 60_000) }, // last hour only
+  };
+  if (opts.role !== "MANAGER") where.userId = opts.userId;
+  return prisma.call.findMany({
+    where,
+    orderBy: { startedAt: "asc" },
+    include: {
+      user: { select: { id: true, name: true } },
+      lead: { select: { id: true, name: true, phone: true } },
+    },
+  });
+}
+
+/** Aggregated talk time per salesperson over a window (today / week / all). */
+export async function talkTimeBySalesperson(opts: { since?: Date }) {
+  const where: import("@/generated/prisma/client").Prisma.CallWhereInput = {};
+  if (opts.since) where.startedAt = { gte: opts.since };
+  const rows = await prisma.call.groupBy({
+    by: ["userId"],
+    where,
+    _sum: { durationSec: true },
+    _count: { _all: true },
+  });
+  const users = await prisma.user.findMany({
+    where: { id: { in: rows.map((r) => r.userId) } },
+    select: { id: true, name: true, role: true },
+  });
+  const usersById = new Map(users.map((u) => [u.id, u]));
+  const connectedRows = await prisma.call.groupBy({
+    by: ["userId"],
+    where: { ...where, outcome: "CONNECTED" },
+    _count: { _all: true },
+  });
+  const connectedByUser = new Map(connectedRows.map((r) => [r.userId, r._count._all]));
+
+  return rows
+    .map((r) => ({
+      userId: r.userId,
+      name: usersById.get(r.userId)?.name ?? "—",
+      role: usersById.get(r.userId)?.role ?? "SALESPERSON",
+      totalCalls: r._count._all,
+      connected: connectedByUser.get(r.userId) ?? 0,
+      totalDurationSec: r._sum.durationSec ?? 0,
+    }))
+    .sort((a, b) => b.totalDurationSec - a.totalDurationSec);
+}
+
+export function startOfTodayUTC(): Date {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+export function startOfWeek(): Date {
+  const d = new Date();
+  const day = d.getDay();
+  const offset = day === 0 ? 6 : day - 1; // Monday as week start
+  d.setDate(d.getDate() - offset);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
