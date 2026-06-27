@@ -40,32 +40,60 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(raw) {
-        const parsed = credsSchema.safeParse(raw);
-        if (!parsed.success) return null;
-        const { email, password } = parsed.data;
+        try {
+          const parsed = credsSchema.safeParse(raw);
+          if (!parsed.success) {
+            console.log("[AUTH] zod schema fail:", parsed.error.issues);
+            return null;
+          }
+          const { email, password } = parsed.data;
+          console.log("[AUTH] attempt:", { email });
 
-        const user = await prisma.user.findUnique({
-          where: { email: email.toLowerCase() },
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            passwordHash: true,
-            role: true,
-            active: true,
-          },
-        });
-        if (!user || !user.active) return null;
+          let user;
+          try {
+            user = await prisma.user.findUnique({
+              where: { email: email.toLowerCase() },
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                passwordHash: true,
+                role: true,
+                active: true,
+              },
+            });
+          } catch (dbErr) {
+            console.error("[AUTH] DB error during findUnique:", dbErr);
+            return null;
+          }
 
-        const ok = await bcrypt.compare(password, user.passwordHash);
-        if (!ok) return null;
+          if (!user) {
+            console.log("[AUTH] no user with email:", email.toLowerCase());
+            return null;
+          }
+          if (!user.active) {
+            console.log("[AUTH] user is inactive:", email);
+            return null;
+          }
+          console.log("[AUTH] user found, comparing pw. hash starts with:", user.passwordHash.slice(0, 7));
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        };
+          const ok = await bcrypt.compare(password, user.passwordHash);
+          if (!ok) {
+            console.log("[AUTH] password mismatch for:", email);
+            return null;
+          }
+
+          console.log("[AUTH] login OK for:", email, "role:", user.role);
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          };
+        } catch (e) {
+          console.error("[AUTH] unexpected error in authorize:", e);
+          return null;
+        }
       },
     }),
   ],
