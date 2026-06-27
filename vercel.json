@@ -1,15 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [
-    {
-      "path": "/api/cron/sla-check?secret=__CRON__",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-sheet?secret=__CRON__",
-      "schedule": "*/5 * * * *"
-    }
-  ],
   "functions": {
     "src/app/api/calls/ingest/route.ts": { "maxDuration": 30 },
     "src/app/api/webhooks/meta/route.ts": { "maxDuration": 30 },

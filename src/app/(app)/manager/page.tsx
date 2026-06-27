@@ -26,6 +26,9 @@ export default async function ManagerHome() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link href="/manager/users" prefetch className="rounded-lg ring-1 ring-slate-300 text-slate-700 text-sm font-medium px-3 py-2 hover:bg-slate-50">
+            Users
+          </Link>
           <Link href="/leads/import" prefetch className="rounded-lg ring-1 ring-slate-300 text-slate-700 text-sm font-medium px-3 py-2 hover:bg-slate-50">
             Import CSV
           </Link>
