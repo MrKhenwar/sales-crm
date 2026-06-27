@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Compose draws its own UI, so the XML theme just needs a sensible parent.
+      android:Theme.Material.Light.NoActionBar is part of the platform (API 21+),
+      so we don't need any external Material Components XML dependency.
+    -->
+    <style name="Theme.SalesCallSync" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/white</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

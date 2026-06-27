@@ -1,0 +1,229 @@
+// CRM data model — covers all 6 phases. Only User is exercised in Phase 1.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SALESPERSON
+  MANAGER
+}
+
+enum LeadSource {
+  META
+  SHEET
+  MANUAL
+}
+
+enum LeadStatus {
+  NEW
+  IN_PROGRESS
+  WON
+  LOST
+}
+
+enum AutoLabel {
+  NONE
+  NOT_PICKED
+  CONNECTED
+  REDIAL
+}
+
+enum ManualLabel {
+  DISPATCH
+  BOOKED
+  ORDERED
+  PAID
+}
+
+enum CallDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum CallOutcome {
+  PENDING
+  NO_ANSWER
+  CONNECTED
+  BUSY
+  FAILED
+}
+
+enum NotificationType {
+  NEW_LEAD
+  REDIAL_DUE
+  LEAD_REASSIGNED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(SALESPERSON)
+  phone        String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  assignedLeads    Lead[]              @relation("AssignedLeads")
+  calls            Call[]
+  callSessions     CallSession[]
+  notifications    Notification[]
+  assignmentsMade  AssignmentLog[]     @relation("AssignmentsMade")
+  assignmentsFrom  AssignmentLog[]     @relation("AssignmentsFrom")
+  assignmentsTo    AssignmentLog[]     @relation("AssignmentsTo")
+  apiTokens        ApiToken[]
+
+  @@index([role, active])
+}
+
+model Lead {
+  id               String      @id @default(cuid())
+  name             String
+  phone            String      @unique
+  email            String?
+  source           LeadSource  @default(MANUAL)
+  campaignName     String?
+  adFormData       Json?
+  status           LeadStatus  @default(NEW)
+  autoLabel        AutoLabel   @default(NONE)
+  assignedToUserId String?
+  assignedTo       User?       @relation("AssignedLeads", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime    @default(now())
+  lastContactedAt  DateTime?
+  nextRedialAt     DateTime?
+
+  labels         LeadLabel[]
+  calls          Call[]
+  notifications  Notification[]
+  assignmentLogs AssignmentLog[]
+
+  @@index([assignedToUserId, createdAt])
+  @@index([source, createdAt])
+  @@index([autoLabel])
+  @@index([nextRedialAt])
+}
+
+// Manual labels stack on top of the auto call-state. A Lead can carry several.
+model LeadLabel {
+  leadId    String
+  label     ManualLabel
+  appliedAt DateTime    @default(now())
+  appliedBy String?
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, label])
+  @@index([label])
+}
+
+model Call {
+  id                String        @id @default(cuid())
+  leadId            String
+  userId            String
+  provider          String        @default("mock")
+  providerCallSid   String?       @unique
+  // The Twilio number used as the caller ID (what the lead sees on their phone)
+  fromNumber        String?
+  // Snapshot of the salesperson's phone at dial time — survives later User.phone edits
+  agentPhone        String?
+  // Snapshot of the lead's phone at dial time
+  leadPhone         String?
+  direction         CallDirection @default(OUTBOUND)
+  startedAt         DateTime      @default(now())
+  answeredAt        DateTime?
+  endedAt           DateTime?
+  durationSec       Int?
+  outcome           CallOutcome   @default(PENDING)
+  recordingUrl      String?
+  feedbackNote      String?
+  dispositionLabel  ManualLabel?
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, startedAt])
+  @@index([userId, startedAt])
+  @@index([outcome])
+}
+
+model CallSession {
+  id        String    @id @default(cuid())
+  userId    String
+  startedAt DateTime  @default(now())
+  pausedAt  DateTime?
+  endedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  leadId    String?
+  message   String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lead Lead? @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
+}
+
+model AssignmentLog {
+  id           String   @id @default(cuid())
+  leadId       String
+  fromUserId   String?
+  toUserId     String?
+  byUserId     String
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  lead     Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromUser User? @relation("AssignmentsFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
+  toUser   User? @relation("AssignmentsTo", fields: [toUserId], references: [id], onDelete: SetNull)
+  by       User  @relation("AssignmentsMade", fields: [byUserId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+  @@index([byUserId, createdAt])
+}
+
+// Manager-editable key/value config: AUTO_ASSIGN_MODE, GOOGLE_SHEET_ID, GOOGLE_SHEET_RANGE, etc.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// Round-robin cursor — tracks the index of the next salesperson to receive a lead.
+model AssignmentCursor {
+  id        Int      @id @default(1)
+  cursor    Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+// Long-lived per-user API token used by the Android companion app to push call logs.
+// We never store the plaintext — only the SHA-256 hash.
+model ApiToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  label      String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+}
+
