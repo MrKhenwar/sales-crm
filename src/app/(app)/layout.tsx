@@ -13,9 +13,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!session?.user) redirect("/login");
 
   const role = session.user.role;
-  const unread = await prisma.notification.count({
-    where: { userId: session.user.id, read: false },
-  });
+  let unread = 0;
+  try {
+    unread = await prisma.notification.count({
+      where: { userId: session.user.id, read: false },
+    });
+  } catch (e) {
+    console.error("[APP_LAYOUT] notification.count failed:", e);
+    console.error("[APP_LAYOUT] DATABASE_URL starts with:", (process.env.DATABASE_URL ?? "").slice(0, 30));
+    console.error("[APP_LAYOUT] DATABASE_URL ends with:", (process.env.DATABASE_URL ?? "").slice(-30));
+    // Don't crash the layout — show the page with unread=0
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
