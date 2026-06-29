@@ -34,6 +34,8 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             }
         } finally {
             api.close()
+            // Queue the next run (~2 min out) so the chain keeps repeating.
+            SyncScheduler.scheduleNext(applicationContext)
         }
     }
 }

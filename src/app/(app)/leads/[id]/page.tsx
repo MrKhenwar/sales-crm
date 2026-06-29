@@ -2,12 +2,12 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getLeadById, listActiveSalespeople } from "@/lib/leads/queries";
-import { applyManualLabel, removeManualLabel, updateLead, assignLead, deleteLead } from "@/lib/leads/actions";
+import { applyManualLabel, removeManualLabel, updateLead, assignLead, deleteLead, addLeadNote } from "@/lib/leads/actions";
 import { AutoLabelChip, ManualLabelChip, MANUAL_LABELS } from "@/components/Labels";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { CallButton } from "@/components/CallButton";
 import { prisma } from "@/lib/prisma";
-import { getCallStatsForLead, formatDuration, ringSeconds } from "@/lib/calls/queries";
+import { getCallStatsForLead, formatDuration, ringSeconds, outcomeLabel } from "@/lib/calls/queries";
 import type { ManualLabel } from "@/generated/prisma/enums";
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -44,6 +44,38 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           <WhatsAppButton fullWidth phone={lead.phone} name={lead.name} />
         </div>
       </div>
+
+      <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-5 sm:p-6">
+        <h2 className="font-medium">Feedback</h2>
+        <p className="text-xs text-slate-500 mt-1">Notes about this lead — newest shown first, just below.</p>
+        <form action={addLeadNote} className="mt-3 flex flex-col sm:flex-row gap-2">
+          <input type="hidden" name="leadId" value={lead.id} />
+          <input
+            name="body"
+            required
+            maxLength={2000}
+            placeholder="Add a note / feedback about this lead…"
+            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
+          />
+          <button type="submit" className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2 hover:bg-slate-800">
+            Add
+          </button>
+        </form>
+        {lead.notes.length > 0 ? (
+          <ul className="mt-4 space-y-2">
+            {lead.notes.map((n, i) => (
+              <li key={i} className="rounded-lg bg-slate-50 ring-1 ring-slate-200 px-3 py-2">
+                <div className="text-sm text-slate-800 whitespace-pre-wrap break-words">{n.body}</div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  {n.user?.name ?? "Someone"} · {new Date(n.createdAt).toLocaleString()}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 text-xs text-slate-400">No feedback yet.</p>
+        )}
+      </section>
 
       <div className="grid md:grid-cols-2 gap-6">
         <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-6">
@@ -173,7 +205,7 @@ async function CallHistory({ leadId }: { leadId: string }) {
                 c.outcome === "BUSY" ? "bg-amber-50 text-amber-700 ring-amber-200" :
                 c.outcome === "FAILED" ? "bg-red-50 text-red-700 ring-red-200" :
                 "bg-slate-100 text-slate-700 ring-slate-200"
-              }`}>{c.outcome}</span>
+              }`}>{outcomeLabel(c.outcome)}</span>
               <span className="text-slate-500 tabular-nums sm:mt-0.5 sm:block">
                 {ringSeconds(c) !== null ? <span className="text-amber-700">rang {formatDuration(ringSeconds(c)!)} · </span> : null}
                 {c.durationSec ?? 0}s talk

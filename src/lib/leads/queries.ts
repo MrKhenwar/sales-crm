@@ -54,6 +54,7 @@ export async function listLeadsForUser(opts: {
       include: {
         labels: { select: { label: true } },
         assignedTo: { select: { id: true, name: true } },
+        notes: { orderBy: { createdAt: "desc" }, take: 1, select: { body: true, createdAt: true } },
       },
     }),
     prisma.lead.count({ where }),
@@ -68,6 +69,11 @@ export async function getLeadById(opts: { id: string; userId: string; role: Role
     include: {
       labels: { select: { label: true, appliedAt: true, appliedBy: true } },
       assignedTo: { select: { id: true, name: true, email: true } },
+      notes: {
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        include: { user: { select: { name: true } } },
+      },
       assignmentLogs: {
         orderBy: { createdAt: "desc" },
         take: 10,

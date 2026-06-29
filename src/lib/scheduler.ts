@@ -5,6 +5,7 @@
  * or any external scheduler hitting /api/cron/*.
  */
 import { runSlaCheck } from "@/lib/sla";
+import { runIdleAgentCheck } from "@/lib/idle";
 import { readSheetRows } from "@/lib/integrations/google-sheets";
 import { ingestBulk } from "@/lib/leads/ingest";
 import { getSetting } from "@/lib/settings";
@@ -27,6 +28,8 @@ async function tickSlaCheck() {
   try {
     const r = await runSlaCheck();
     if (r.notified > 0) console.log(`[scheduler] SLA: ${r.checked} candidates → ${r.notified} new notifications`);
+    const idle = await runIdleAgentCheck();
+    if (idle.notified > 0) console.log(`[scheduler] Idle agents: ${idle.idle} → ${idle.notified} notifications`);
   } catch (e) {
     console.error("[scheduler] SLA check failed:", (e as Error).message);
   } finally {

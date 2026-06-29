@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSlaCheck } from "@/lib/sla";
+import { runIdleAgentCheck } from "@/lib/idle";
 
 export const runtime = "nodejs";
 
@@ -13,5 +14,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const result = await runSlaCheck();
-  return NextResponse.json({ ok: true, ...result });
+  const idle = await runIdleAgentCheck();
+  return NextResponse.json({ ok: true, ...result, idle });
 }

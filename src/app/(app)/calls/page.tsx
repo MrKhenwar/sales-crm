@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { listCallLogs, listCallsByPhone, formatDuration, ringSeconds, type CallLogFilters } from "@/lib/calls/queries";
+import { listCallLogs, listCallsByPhone, formatDuration, ringSeconds, outcomeLabel, type CallLogFilters } from "@/lib/calls/queries";
 import { listActiveSalespeople } from "@/lib/leads/queries";
 import type { CallOutcome } from "@/generated/prisma/enums";
 
@@ -67,7 +67,7 @@ export default async function CallsPage({
           <>
             <select name="outcome" defaultValue={filters.outcome ?? ""} className="rounded-lg border border-slate-300 px-2 py-2">
               <option value="">All outcomes</option>
-              {OUTCOMES.map((o) => <option key={o} value={o}>{o.replace("_", " ")}</option>)}
+              {OUTCOMES.map((o) => <option key={o} value={o}>{outcomeLabel(o)}</option>)}
             </select>
             {role === "MANAGER" ? (
               <select name="agent" defaultValue={filters.agentUserId ?? ""} className="rounded-lg border border-slate-300 px-2 py-2">
@@ -235,7 +235,7 @@ function OutcomeChip({ outcome }: { outcome: CallOutcome }) {
   };
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 ring-1 text-[10px] font-semibold uppercase tracking-wide ${styles[outcome]}`}>
-      {outcome.replace("_", " ")}
+      {outcomeLabel(outcome)}
     </span>
   );
 }

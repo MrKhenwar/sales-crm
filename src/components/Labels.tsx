@@ -14,14 +14,23 @@ const MANUAL_STYLE: Record<ManualLabel, string> = {
   PAID: "bg-emerald-100 text-emerald-800 ring-emerald-300",
 };
 
+const AUTO_TEXT: Record<AutoLabel, string> = {
+  NONE: "",
+  NOT_PICKED: "Not picked",
+  CONNECTED: "Picked",
+  REDIAL: "Redial",
+};
+
 export function AutoLabelChip({ label }: { label: AutoLabel }) {
   if (label === "NONE") return null;
   return (
     <span className={`inline-flex items-center rounded-full text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 ring-1 ${AUTO_STYLE[label]}`}>
-      {label.replace("_", " ")}
+      {AUTO_TEXT[label]}
     </span>
   );
 }
+
+export const AUTO_LABEL_TEXT = AUTO_TEXT;
 
 export function ManualLabelChip({ label }: { label: ManualLabel }) {
   return (

@@ -186,3 +186,20 @@ export async function deleteLead(formData: FormData): Promise<void> {
   revalidatePath("/leads");
   redirect("/leads");
 }
+
+/** Add a free-text feedback note to a lead. Shown newest-first on the lead. */
+export async function addLeadNote(formData: FormData): Promise<void> {
+  const user = await requireSession();
+  const leadId = String(formData.get("leadId") ?? "");
+  const body = String(formData.get("body") ?? "").trim();
+  if (!leadId) redirect("/leads");
+  if (!body) redirect(`/leads/${leadId}`);
+  const lead = await leadVisibleToUser(leadId, user.id, user.role);
+  if (!lead) redirect("/leads");
+  await prisma.leadNote.create({
+    data: { leadId, userId: user.id, body: body.slice(0, 2000) },
+  });
+  revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/leads");
+  redirect(`/leads/${leadId}`);
+}

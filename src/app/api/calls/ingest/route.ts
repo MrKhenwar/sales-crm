@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyApiToken } from "@/lib/tokens";
 import { phoneTail } from "@/lib/phone";
 import { applyCallStatusUpdate } from "@/lib/calls/handlers";
+import { runIdleAgentCheck } from "@/lib/idle";
 
 export const runtime = "nodejs";
 
@@ -152,6 +153,11 @@ export async function POST(req: NextRequest) {
 
     results.push({ phone: item.phone, status: existing ? "updated" : "created", leadId: match.id, callId });
   }
+
+  // The app pings this every ~2 min, so it's a reliable place (on serverless,
+  // where in-process schedulers don't run) to check if this salesperson has
+  // gone quiet for too long and alert them + managers.
+  try { await runIdleAgentCheck({ userId: user.id }); } catch { /* non-fatal */ }
 
   return NextResponse.json({ ok: true, created, updated, skipped, results });
 }

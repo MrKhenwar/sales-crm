@@ -2,7 +2,7 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { listLeadsForUser, listActiveSalespeople, type LeadFilters } from "@/lib/leads/queries";
-import { AutoLabelChip, ManualLabelChip } from "@/components/Labels";
+import { AutoLabelChip, ManualLabelChip, AUTO_LABEL_TEXT } from "@/components/Labels";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { CallButton } from "@/components/CallButton";
 import type { AutoLabel, LeadSource, ManualLabel } from "@/generated/prisma/enums";
@@ -86,7 +86,7 @@ export default async function LeadsPage({
         <select name="autoLabel" defaultValue={filters.autoLabel ?? ""} className="rounded-lg border border-slate-300 px-2 py-2">
           <option value="">All call states</option>
           {AUTO_LABELS.filter((l) => l !== "NONE").map((s) => (
-            <option key={s} value={s}>{s.replace("_", " ")}</option>
+            <option key={s} value={s}>{AUTO_LABEL_TEXT[s]}</option>
           ))}
         </select>
         <select name="manualLabel" defaultValue={filters.manualLabel ?? ""} className="rounded-lg border border-slate-300 px-2 py-2">
@@ -130,6 +130,9 @@ export default async function LeadsPage({
                       {lead.name}
                     </Link>
                     <div className="text-xs text-slate-500 tabular-nums mt-0.5">{lead.phone}</div>
+                    {lead.notes[0] ? (
+                      <div className="text-xs text-slate-600 mt-1 line-clamp-2">{lead.notes[0].body}</div>
+                    ) : null}
                   </div>
                   <span className="shrink-0 text-[11px] text-slate-400">
                     {lead.lastContactedAt ? new Date(lead.lastContactedAt).toLocaleDateString() : "Never"}
@@ -177,6 +180,9 @@ export default async function LeadsPage({
                         {lead.name}
                       </Link>
                       <div className="text-xs text-slate-500 tabular-nums">{lead.phone}</div>
+                      {lead.notes[0] ? (
+                        <div className="text-xs text-slate-600 mt-0.5 max-w-[28ch] truncate">{lead.notes[0].body}</div>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-slate-700">
                       {lead.source}

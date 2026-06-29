@@ -227,6 +227,18 @@ export function ringSeconds(c: {
   return null;
 }
 
+/** Human-friendly outcome wording used across the UI. */
+export function outcomeLabel(o: string): string {
+  switch (o) {
+    case "CONNECTED": return "Picked";
+    case "NO_ANSWER": return "Not picked";
+    case "BUSY": return "Busy";
+    case "FAILED": return "Failed";
+    case "PENDING": return "Ringing";
+    default: return o;
+  }
+}
+
 export function formatDuration(sec: number): string {
   if (sec <= 0) return "0s";
   const h = Math.floor(sec / 3600);

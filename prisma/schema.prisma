@@ -78,6 +78,7 @@ model User {
   assignmentsFrom  AssignmentLog[]     @relation("AssignmentsFrom")
   assignmentsTo    AssignmentLog[]     @relation("AssignmentsTo")
   apiTokens        ApiToken[]
+  leadNotes        LeadNote[]
 
   @@index([role, active])
 }
@@ -102,11 +103,26 @@ model Lead {
   calls          Call[]
   notifications  Notification[]
   assignmentLogs AssignmentLog[]
+  notes          LeadNote[]
 
   @@index([assignedToUserId, createdAt])
   @@index([source, createdAt])
   @@index([autoLabel])
   @@index([nextRedialAt])
+}
+
+// Free-text feedback notes on a lead, shown newest-first under the lead.
+model LeadNote {
+  id        String   @id @default(cuid())
+  leadId    String
+  userId    String?
+  body      String
+  createdAt DateTime @default(now())
+
+  lead Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, createdAt])
 }
 
 // Manual labels stack on top of the auto call-state. A Lead can carry several.
