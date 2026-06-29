@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { listLeadsForUser, listActiveSalespeople, type LeadFilters } from "@/lib/leads/queries";
 import { AutoLabelChip, ManualLabelChip } from "@/components/Labels";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
-import { startCallForLead } from "@/lib/calls/actions";
+import { CallButton } from "@/components/CallButton";
 import type { AutoLabel, LeadSource, ManualLabel } from "@/generated/prisma/enums";
 
 const SOURCES: LeadSource[] = ["META", "SHEET", "MANUAL"];
@@ -149,15 +149,7 @@ export default async function LeadsPage({
                 ) : null}
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
-                  <form action={startCallForLead} className="contents">
-                    <input type="hidden" name="leadId" value={lead.id} />
-                    <button
-                      type="submit"
-                      className="rounded-lg bg-emerald-600 text-white text-sm font-medium py-2.5 hover:bg-emerald-700 transition"
-                    >
-                      Call
-                    </button>
-                  </form>
+                  <CallButton fullWidth leadId={lead.id} phone={lead.phone} />
                   <WhatsAppButton fullWidth phone={lead.phone} name={lead.name} />
                 </div>
               </li>
@@ -204,15 +196,7 @@ export default async function LeadsPage({
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex items-center gap-2">
-                        <form action={startCallForLead}>
-                          <input type="hidden" name="leadId" value={lead.id} />
-                          <button
-                            type="submit"
-                            className="rounded-md bg-emerald-50 text-emerald-700 text-xs font-medium px-2 py-1 ring-1 ring-emerald-200 hover:bg-emerald-100 transition"
-                          >
-                            Call
-                          </button>
-                        </form>
+                        <CallButton compact leadId={lead.id} phone={lead.phone} />
                         <WhatsAppButton compact phone={lead.phone} name={lead.name} />
                       </div>
                     </td>

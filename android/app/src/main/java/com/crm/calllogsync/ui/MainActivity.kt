@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Phone
@@ -62,6 +63,15 @@ class MainActivity : ComponentActivity() {
             webViewHolder.reload(url)
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        // Sync immediately every time the app is opened or brought to the foreground.
+        val prefs = Prefs(this)
+        if (prefs.isConfigured) {
+            SyncScheduler.runNow(applicationContext)
+        }
+    }
 }
 
 @Composable
@@ -98,7 +108,13 @@ private fun AppRoot(initialOpenUrl: String?) {
                             )
                         }
                     } else {
-                        CrmWebView(serverUrl = serverUrl, onBackPressed = { /* exit handled by Activity */ })
+                        // Pad below the status bar so the CRM's own top nav doesn't
+                        // collide with the notification bar (targetSdk 35 is edge-to-edge).
+                        CrmWebView(
+                            serverUrl = serverUrl,
+                            onBackPressed = { /* exit handled by Activity */ },
+                            modifier = Modifier.padding(WindowInsets.statusBars.asPaddingValues()),
+                        )
                     }
                 }
                 1 -> SyncScreen(prefs = prefs, onSaved = { serverUrl = prefs.serverUrl })

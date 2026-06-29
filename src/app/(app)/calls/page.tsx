@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { listCallLogs, listCallsByPhone, formatDuration, type CallLogFilters } from "@/lib/calls/queries";
+import { listCallLogs, listCallsByPhone, formatDuration, ringSeconds, type CallLogFilters } from "@/lib/calls/queries";
 import { listActiveSalespeople } from "@/lib/leads/queries";
 import type { CallOutcome } from "@/generated/prisma/enums";
 
@@ -110,7 +110,12 @@ export default async function CallsPage({
                     <div className="mt-1 text-xs text-slate-500 font-mono">{c.lead.phone}</div>
                     <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
                       <span className="tabular-nums">{new Date(c.startedAt).toLocaleString()}</span>
-                      <span className="tabular-nums font-medium text-slate-700">{formatDuration(c.durationSec ?? 0)}</span>
+                      <span className="tabular-nums text-slate-700">
+                        {ringSeconds(c) !== null ? <span className="text-amber-700">rang {formatDuration(ringSeconds(c)!)}</span> : null}
+                        {ringSeconds(c) !== null && (c.durationSec ?? 0) > 0 ? <span className="text-slate-300"> · </span> : null}
+                        {(c.durationSec ?? 0) > 0 ? <span className="font-medium">talk {formatDuration(c.durationSec ?? 0)}</span> : null}
+                        {ringSeconds(c) === null && (c.durationSec ?? 0) === 0 ? <span className="font-medium">{formatDuration(0)}</span> : null}
+                      </span>
                     </div>
                     {role === "MANAGER" ? <div className="mt-1 text-xs text-slate-500">Agent: {c.user.name}</div> : null}
                     {c.feedbackNote || c.recordingUrl ? (
@@ -151,7 +156,12 @@ export default async function CallsPage({
                         <td className="px-4 py-3">
                           <OutcomeChip outcome={c.outcome} />
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums">{formatDuration(c.durationSec ?? 0)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {formatDuration(c.durationSec ?? 0)}
+                          {ringSeconds(c) !== null ? (
+                            <div className="text-[10px] text-amber-700">rang {formatDuration(ringSeconds(c)!)}</div>
+                          ) : null}
+                        </td>
                         <td className="px-4 py-3 text-xs text-slate-600 max-w-[20ch] truncate" title={c.feedbackNote ?? ""}>
                           {c.feedbackNote ?? <span className="text-slate-400">—</span>}
                           {c.recordingUrl ? <> · <a className="underline" href={c.recordingUrl} target="_blank" rel="noreferrer">rec</a></> : null}

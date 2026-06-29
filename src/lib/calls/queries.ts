@@ -203,6 +203,30 @@ export async function listCallsByPhone(opts: {
     .sort((a, b) => +b.lastCalledAt - +a.lastCalledAt);
 }
 
+/**
+ * How long the call rang before it was answered or given up on, in seconds —
+ * or null when it can't be known (e.g. calls synced from the Android system
+ * log, which records talk time but never ring time).
+ *
+ * - answered (CONNECTED): answeredAt − startedAt
+ * - not picked: endedAt − startedAt, but only when there was no talk time
+ */
+export function ringSeconds(c: {
+  startedAt: Date | string;
+  answeredAt?: Date | string | null;
+  endedAt?: Date | string | null;
+  durationSec?: number | null;
+}): number | null {
+  const start = +new Date(c.startedAt);
+  if (!start) return null;
+  if (c.answeredAt) return Math.max(0, Math.round((+new Date(c.answeredAt) - start) / 1000));
+  if (c.endedAt && (c.durationSec ?? 0) === 0) {
+    const r = Math.round((+new Date(c.endedAt) - start) / 1000);
+    return r > 0 ? r : null;
+  }
+  return null;
+}
+
 export function formatDuration(sec: number): string {
   if (sec <= 0) return "0s";
   const h = Math.floor(sec / 3600);

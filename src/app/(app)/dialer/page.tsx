@@ -2,10 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { nextLeadInQueue, getActiveSession, getCallById, todayCallStats } from "@/lib/calls/queries";
-import { startCallForLead, startCallSession, pauseCallSession, endCallSession, submitCallFeedback } from "@/lib/calls/actions";
+import { startCallSession, pauseCallSession, endCallSession, submitCallFeedback } from "@/lib/calls/actions";
 import { DialerLive } from "@/components/Dialer";
 import { DirectCallPanel } from "@/components/DirectCallPanel";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { CallButton } from "@/components/CallButton";
 import { AutoLabelChip } from "@/components/Labels";
 
 export default async function DialerPage({
@@ -87,13 +88,7 @@ export default async function DialerPage({
             <div className="flex gap-2">
               <WhatsAppButton compact phone={lead.phone} name={lead.name} />
               {active && !isPaused ? (
-                <form action={startCallForLead}>
-                  <input type="hidden" name="leadId" value={lead.id} />
-                  <input type="hidden" name="sessionId" value={active.id} />
-                  <button type="submit" className="rounded-lg bg-emerald-600 text-white text-sm font-medium px-4 py-2 hover:bg-emerald-700">
-                    Call
-                  </button>
-                </form>
+                <CallButton leadId={lead.id} phone={lead.phone} sessionId={active.id} />
               ) : (
                 <button type="button" disabled className="rounded-lg bg-slate-100 text-slate-400 text-sm font-medium px-4 py-2 cursor-not-allowed">
                   {active ? "Paused" : "Start session first"}

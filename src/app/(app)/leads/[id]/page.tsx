@@ -3,11 +3,11 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getLeadById, listActiveSalespeople } from "@/lib/leads/queries";
 import { applyManualLabel, removeManualLabel, updateLead, assignLead, deleteLead } from "@/lib/leads/actions";
-import { startCallForLead } from "@/lib/calls/actions";
 import { AutoLabelChip, ManualLabelChip, MANUAL_LABELS } from "@/components/Labels";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
+import { CallButton } from "@/components/CallButton";
 import { prisma } from "@/lib/prisma";
-import { getCallStatsForLead, formatDuration } from "@/lib/calls/queries";
+import { getCallStatsForLead, formatDuration, ringSeconds } from "@/lib/calls/queries";
 import type { ManualLabel } from "@/generated/prisma/enums";
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,12 +40,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
-          <form action={startCallForLead} className="contents">
-            <input type="hidden" name="leadId" value={lead.id} />
-            <button type="submit" className="rounded-lg bg-emerald-600 text-white text-sm font-medium px-3 py-2.5 hover:bg-emerald-700">
-              Call
-            </button>
-          </form>
+          <CallButton fullWidth leadId={lead.id} phone={lead.phone} />
           <WhatsAppButton fullWidth phone={lead.phone} name={lead.name} />
         </div>
       </div>
@@ -179,7 +174,10 @@ async function CallHistory({ leadId }: { leadId: string }) {
                 c.outcome === "FAILED" ? "bg-red-50 text-red-700 ring-red-200" :
                 "bg-slate-100 text-slate-700 ring-slate-200"
               }`}>{c.outcome}</span>
-              <span className="text-slate-500 tabular-nums sm:mt-0.5 sm:block">{c.durationSec ?? 0}s</span>
+              <span className="text-slate-500 tabular-nums sm:mt-0.5 sm:block">
+                {ringSeconds(c) !== null ? <span className="text-amber-700">rang {formatDuration(ringSeconds(c)!)} · </span> : null}
+                {c.durationSec ?? 0}s talk
+              </span>
             </div>
             <div className="sm:col-span-4 text-[11px] text-slate-600 space-y-0.5">
               {c.fromNumber ? <div><span className="text-slate-400">from </span><span className="font-mono">{c.fromNumber}</span></div> : null}

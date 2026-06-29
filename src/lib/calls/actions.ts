@@ -154,6 +154,7 @@ export async function submitCallFeedback(formData: FormData): Promise<void> {
   const redialIn = String(formData.get("redialIn") ?? "").trim(); // hours
   const outcomeRaw = String(formData.get("outcome") ?? "").trim().toUpperCase();
   const durationRaw = String(formData.get("durationSec") ?? "").trim();
+  const ringRaw = String(formData.get("ringSec") ?? "").trim();
 
   const allowed: ManualLabel[] = ["DISPATCH", "BOOKED", "ORDERED", "PAID"];
   const label = (allowed as string[]).includes(labelRaw) ? (labelRaw as ManualLabel) : null;
@@ -161,10 +162,11 @@ export async function submitCallFeedback(formData: FormData): Promise<void> {
   const allowedOutcomes: CallOutcome[] = ["CONNECTED", "NO_ANSWER", "BUSY", "FAILED"];
   const outcome = (allowedOutcomes as string[]).includes(outcomeRaw) ? (outcomeRaw as CallOutcome) : null;
   const durationSec = durationRaw ? Math.max(0, parseInt(durationRaw, 10) || 0) : null;
+  const ringSec = ringRaw ? Math.max(0, parseInt(ringRaw, 10) || 0) : null;
 
   const call = await prisma.call.findUnique({
     where: { id: callId },
-    select: { id: true, leadId: true, userId: true },
+    select: { id: true, leadId: true, userId: true, startedAt: true },
   });
   if (!call) redirect("/dialer");
   if (call.userId !== user.id && user.role !== "MANAGER") redirect("/dialer");
@@ -184,9 +186,33 @@ export async function submitCallFeedback(formData: FormData): Promise<void> {
     });
   }
 
+  // Pin precise ring/talk timestamps so ring time is recoverable later:
+  //   CONNECTED → answeredAt = dial + ring;  endedAt = answeredAt + talk
+  //   not picked → endedAt = dial + ring (how long it rang), no answeredAt
+  const callData: {
+    feedbackNote: string | null;
+    dispositionLabel: ManualLabel | null;
+    answeredAt?: Date | null;
+    endedAt?: Date;
+    durationSec?: number;
+  } = { feedbackNote: note, dispositionLabel: label };
+  if (ringSec !== null) {
+    const startMs = +call.startedAt;
+    if (outcome === "CONNECTED") {
+      const answered = new Date(startMs + ringSec * 1000);
+      callData.answeredAt = answered;
+      callData.endedAt = new Date(answered.getTime() + (durationSec ?? 0) * 1000);
+      callData.durationSec = durationSec ?? 0;
+    } else if (outcome) {
+      callData.answeredAt = null;
+      callData.endedAt = new Date(startMs + ringSec * 1000);
+      callData.durationSec = 0;
+    }
+  }
+
   await prisma.call.update({
     where: { id: callId },
-    data: { feedbackNote: note, dispositionLabel: label },
+    data: callData,
   });
 
   if (label) {
