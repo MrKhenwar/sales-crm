@@ -42,14 +42,14 @@ export default async function CallsPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Call logs</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Call logs</h1>
           <p className="text-slate-500 mt-1 text-sm">
             {role === "MANAGER" ? "Every call your team has logged in the CRM." : "Every call you've logged in the CRM."}
           </p>
         </div>
-        <div className="flex gap-1 text-sm rounded-lg ring-1 ring-slate-200 bg-white p-1">
+        <div className="flex gap-1 text-sm rounded-lg ring-1 ring-slate-200 bg-white p-1 self-start">
           <Link href="/calls?tab=log" prefetch className={`px-3 py-1 rounded-md ${tab === "log" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}>Timeline</Link>
           <Link href="/calls?tab=by-number" prefetch className={`px-3 py-1 rounded-md ${tab === "by-number" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}>By number</Link>
         </div>
@@ -93,48 +93,79 @@ export default async function CallsPage({
             <Stat label="Average call" value={formatDuration(log.avgDurationSec)} />
           </div>
 
-          <div className="rounded-2xl bg-white ring-1 ring-slate-200 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
-                <tr>
-                  <th className="text-left px-4 py-3">When</th>
-                  <th className="text-left px-4 py-3">Lead</th>
-                  <th className="text-left px-4 py-3">Number</th>
-                  {role === "MANAGER" ? <th className="text-left px-4 py-3">Agent</th> : null}
-                  <th className="text-left px-4 py-3">Outcome</th>
-                  <th className="text-right px-4 py-3">Duration</th>
-                  <th className="text-left px-4 py-3">Note</th>
-                </tr>
-              </thead>
-              <tbody>
-                {log.items.length === 0 ? (
-                  <tr><td colSpan={role === "MANAGER" ? 7 : 6} className="px-4 py-12 text-center text-slate-500">No calls match these filters.</td></tr>
-                ) : log.items.map((c) => (
-                  <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-4 py-3 text-xs text-slate-500 tabular-nums whitespace-nowrap">
-                      {new Date(c.startedAt).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link href={`/leads/${c.leadId}`} prefetch className="font-medium hover:underline">{c.lead.name}</Link>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs">{c.lead.phone}</td>
-                    {role === "MANAGER" ? <td className="px-4 py-3 text-slate-600">{c.user.name}</td> : null}
-                    <td className="px-4 py-3">
+          {log.items.length === 0 ? (
+            <div className="rounded-2xl bg-white ring-1 ring-slate-200 px-4 py-12 text-center text-slate-500">
+              No calls match these filters.
+            </div>
+          ) : (
+            <>
+              {/* Mobile cards */}
+              <ul className="space-y-3 md:hidden">
+                {log.items.map((c) => (
+                  <li key={c.id} className="rounded-2xl bg-white ring-1 ring-slate-200 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <Link href={`/leads/${c.leadId}`} prefetch className="font-medium hover:underline truncate">{c.lead.name}</Link>
                       <OutcomeChip outcome={c.outcome} />
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatDuration(c.durationSec ?? 0)}</td>
-                    <td className="px-4 py-3 text-xs text-slate-600 max-w-[20ch] truncate" title={c.feedbackNote ?? ""}>
-                      {c.feedbackNote ?? <span className="text-slate-400">—</span>}
-                      {c.recordingUrl ? <> · <a className="underline" href={c.recordingUrl} target="_blank" rel="noreferrer">rec</a></> : null}
-                    </td>
-                  </tr>
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500 font-mono">{c.lead.phone}</div>
+                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                      <span className="tabular-nums">{new Date(c.startedAt).toLocaleString()}</span>
+                      <span className="tabular-nums font-medium text-slate-700">{formatDuration(c.durationSec ?? 0)}</span>
+                    </div>
+                    {role === "MANAGER" ? <div className="mt-1 text-xs text-slate-500">Agent: {c.user.name}</div> : null}
+                    {c.feedbackNote || c.recordingUrl ? (
+                      <div className="mt-2 text-xs text-slate-600">
+                        {c.feedbackNote}
+                        {c.recordingUrl ? <> {c.feedbackNote ? "· " : ""}<a className="underline" href={c.recordingUrl} target="_blank" rel="noreferrer">recording</a></> : null}
+                      </div>
+                    ) : null}
+                  </li>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </ul>
+
+              {/* Desktop table */}
+              <div className="hidden md:block rounded-2xl bg-white ring-1 ring-slate-200 scroll-x">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
+                    <tr>
+                      <th className="text-left px-4 py-3">When</th>
+                      <th className="text-left px-4 py-3">Lead</th>
+                      <th className="text-left px-4 py-3">Number</th>
+                      {role === "MANAGER" ? <th className="text-left px-4 py-3">Agent</th> : null}
+                      <th className="text-left px-4 py-3">Outcome</th>
+                      <th className="text-right px-4 py-3">Duration</th>
+                      <th className="text-left px-4 py-3">Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {log.items.map((c) => (
+                      <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <td className="px-4 py-3 text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                          {new Date(c.startedAt).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Link href={`/leads/${c.leadId}`} prefetch className="font-medium hover:underline">{c.lead.name}</Link>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs">{c.lead.phone}</td>
+                        {role === "MANAGER" ? <td className="px-4 py-3 text-slate-600">{c.user.name}</td> : null}
+                        <td className="px-4 py-3">
+                          <OutcomeChip outcome={c.outcome} />
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">{formatDuration(c.durationSec ?? 0)}</td>
+                        <td className="px-4 py-3 text-xs text-slate-600 max-w-[20ch] truncate" title={c.feedbackNote ?? ""}>
+                          {c.feedbackNote ?? <span className="text-slate-400">—</span>}
+                          {c.recordingUrl ? <> · <a className="underline" href={c.recordingUrl} target="_blank" rel="noreferrer">rec</a></> : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       ) : (
-        <div className="rounded-2xl bg-white ring-1 ring-slate-200 overflow-hidden">
+        <div className="rounded-2xl bg-white ring-1 ring-slate-200 scroll-x">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
               <tr>

@@ -84,6 +84,25 @@ export async function getLeadById(opts: { id: string; userId: string; role: Role
   return lead;
 }
 
+/** Lead funnel for the manager dashboard: status breakdown + contacted vs uncontacted. */
+export async function leadFunnel() {
+  const [byStatus, total, contacted] = await Promise.all([
+    prisma.lead.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.lead.count(),
+    prisma.lead.count({ where: { lastContactedAt: { not: null } } }),
+  ]);
+  const m = new Map(byStatus.map((s) => [s.status, s._count._all]));
+  return {
+    total,
+    contacted,
+    uncontacted: total - contacted,
+    new: m.get("NEW") ?? 0,
+    inProgress: m.get("IN_PROGRESS") ?? 0,
+    won: m.get("WON") ?? 0,
+    lost: m.get("LOST") ?? 0,
+  };
+}
+
 export async function listActiveSalespeople() {
   return prisma.user.findMany({
     where: { role: "SALESPERSON", active: true },

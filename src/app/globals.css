@@ -4,6 +4,36 @@
   --font-sans: var(--font-geist-sans);
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   font-family: var(--font-sans), system-ui, sans-serif;
+  /* Prevent accidental page-level horizontal scroll on small screens */
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Momentum horizontal scrolling for wide tables on touch devices */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Respect the home-indicator / gesture bar on phones for the fixed bottom nav */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.bottom-safe {
+  bottom: env(safe-area-inset-bottom);
+}
+
+/* Inputs at >=16px so mobile browsers don't auto-zoom on focus */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }

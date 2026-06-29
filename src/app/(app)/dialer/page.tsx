@@ -31,9 +31,9 @@ export default async function DialerPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Auto-dialer</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Auto-dialer</h1>
           <p className="text-slate-500 mt-1 text-sm">
             {active
               ? isPaused

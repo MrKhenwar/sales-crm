@@ -265,6 +265,27 @@ export async function talkTimeBySalesperson(opts: { since?: Date }) {
     .sort((a, b) => b.totalDurationSec - a.totalDurationSec);
 }
 
+/** Team-wide call totals over a window: picked (connected) vs not picked + talk time. */
+export async function teamCallStats(opts: { since?: Date }) {
+  const where: import("@/generated/prisma/client").Prisma.CallWhereInput = {};
+  if (opts.since) where.startedAt = { gte: opts.since };
+  const [agg, connected, notPicked] = await Promise.all([
+    prisma.call.aggregate({ where, _count: { _all: true }, _sum: { durationSec: true }, _avg: { durationSec: true } }),
+    prisma.call.count({ where: { ...where, outcome: "CONNECTED" } }),
+    prisma.call.count({ where: { ...where, outcome: { in: ["NO_ANSWER", "BUSY", "FAILED"] } } }),
+  ]);
+  const total = agg._count._all;
+  return {
+    total,
+    connected,
+    notPicked,
+    pending: total - connected - notPicked,
+    talkSec: agg._sum.durationSec ?? 0,
+    avgSec: Math.round(agg._avg.durationSec ?? 0),
+    connectRate: total > 0 ? Math.round((connected / total) * 100) : 0,
+  };
+}
+
 export function startOfTodayUTC(): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);

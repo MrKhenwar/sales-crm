@@ -88,7 +88,46 @@ Password: ${sp.password}`}
         </form>
       </section>
 
-      <section className="rounded-2xl bg-white ring-1 ring-slate-200 overflow-hidden">
+      {/* Mobile cards */}
+      <ul className="space-y-3 md:hidden">
+        {users.map((u) => (
+          <li key={u.id} className={`rounded-2xl bg-white ring-1 ring-slate-200 p-4 ${u.active ? "" : "opacity-70"}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <Link href={`/manager/users/${u.id}`} prefetch className="font-medium text-slate-900 hover:underline">
+                  {u.name}
+                </Link>
+                {u.id === session.user.id ? <span className="ml-2 text-[10px] text-slate-500">(you)</span> : null}
+                <div className="text-xs text-slate-500 font-mono mt-0.5 break-all">{u.email}</div>
+                <div className="text-xs text-slate-500 font-mono">{u.phone ?? "—"}</div>
+              </div>
+              {u.active ? (
+                <span className="shrink-0 inline-flex rounded-full text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 ring-1 bg-emerald-50 text-emerald-700 ring-emerald-200">Active</span>
+              ) : (
+                <span className="shrink-0 inline-flex rounded-full text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 ring-1 bg-slate-100 text-slate-700 ring-slate-200">Disabled</span>
+              )}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">{u.role}</div>
+            <div className="mt-3 flex items-center gap-4">
+              <form action={generatePasswordAction}>
+                <input type="hidden" name="id" value={u.id} />
+                <button type="submit" className="text-xs text-slate-600 hover:underline">Reset password</button>
+              </form>
+              {u.id !== session.user.id ? (
+                <form action={toggleUserActiveAction}>
+                  <input type="hidden" name="id" value={u.id} />
+                  <button type="submit" className={`text-xs hover:underline ${u.active ? "text-red-600" : "text-emerald-700"}`}>
+                    {u.active ? "Disable" : "Enable"}
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {/* Desktop table */}
+      <section className="hidden md:block rounded-2xl bg-white ring-1 ring-slate-200 scroll-x">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
             <tr>

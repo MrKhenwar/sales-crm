@@ -46,9 +46,9 @@ export default async function LeadsPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Leads</h1>
           <p className="text-slate-500 mt-1 text-sm">
             {role === "MANAGER" ? "All leads across the team." : "Your assigned leads."} {total} total.
           </p>
@@ -114,64 +114,115 @@ export default async function LeadsPage({
         </div>
       </form>
 
-      <div className="rounded-2xl bg-white ring-1 ring-slate-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
-            <tr>
-              <th className="text-left px-4 py-3">Lead</th>
-              <th className="text-left px-4 py-3">Source</th>
-              <th className="text-left px-4 py-3">Labels</th>
-              {role === "MANAGER" ? <th className="text-left px-4 py-3">Assignee</th> : null}
-              <th className="text-left px-4 py-3">Last contact</th>
-              <th className="text-right px-4 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 ? (
-              <tr><td colSpan={role === "MANAGER" ? 6 : 5} className="px-4 py-12 text-center text-slate-500">No leads match these filters.</td></tr>
-            ) : items.map((lead) => (
-              <tr key={lead.id} className="border-t border-slate-100 hover:bg-slate-50">
-                <td className="px-4 py-3">
-                  <Link href={`/leads/${lead.id}`} prefetch className="font-medium text-slate-900 hover:underline">
-                    {lead.name}
-                  </Link>
-                  <div className="text-xs text-slate-500 tabular-nums">{lead.phone}</div>
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  {lead.source}
-                  {lead.campaignName ? <div className="text-xs text-slate-400">{lead.campaignName}</div> : null}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-1 flex-wrap">
-                    <AutoLabelChip label={lead.autoLabel} />
-                    {lead.labels.map((l) => <ManualLabelChip key={l.label} label={l.label} />)}
+      {items.length === 0 ? (
+        <div className="rounded-2xl bg-white ring-1 ring-slate-200 px-4 py-12 text-center text-slate-500">
+          No leads match these filters.
+        </div>
+      ) : (
+        <>
+          {/* Mobile: card list with always-visible actions */}
+          <ul className="space-y-3 md:hidden">
+            {items.map((lead) => (
+              <li key={lead.id} className="rounded-2xl bg-white ring-1 ring-slate-200 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link href={`/leads/${lead.id}`} prefetch className="font-medium text-slate-900 hover:underline block truncate">
+                      {lead.name}
+                    </Link>
+                    <div className="text-xs text-slate-500 tabular-nums mt-0.5">{lead.phone}</div>
                   </div>
-                </td>
+                  <span className="shrink-0 text-[11px] text-slate-400">
+                    {lead.lastContactedAt ? new Date(lead.lastContactedAt).toLocaleDateString() : "Never"}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-slate-500">{lead.source}</span>
+                  <AutoLabelChip label={lead.autoLabel} />
+                  {lead.labels.map((l) => <ManualLabelChip key={l.label} label={l.label} />)}
+                </div>
+
                 {role === "MANAGER" ? (
-                  <td className="px-4 py-3 text-slate-700">{lead.assignedTo?.name ?? <span className="text-slate-400">Unassigned</span>}</td>
-                ) : null}
-                <td className="px-4 py-3 text-slate-500 text-xs">
-                  {lead.lastContactedAt ? new Date(lead.lastContactedAt).toLocaleDateString() : "Never"}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="inline-flex items-center gap-2">
-                    <form action={startCallForLead}>
-                      <input type="hidden" name="leadId" value={lead.id} />
-                      <button
-                        type="submit"
-                        className="rounded-md bg-emerald-50 text-emerald-700 text-xs font-medium px-2 py-1 ring-1 ring-emerald-200 hover:bg-emerald-100 transition"
-                      >
-                        Call
-                      </button>
-                    </form>
-                    <WhatsAppButton compact phone={lead.phone} name={lead.name} />
+                  <div className="mt-1 text-xs text-slate-500">
+                    {lead.assignedTo?.name ?? <span className="text-slate-400">Unassigned</span>}
                   </div>
-                </td>
-              </tr>
+                ) : null}
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <form action={startCallForLead} className="contents">
+                    <input type="hidden" name="leadId" value={lead.id} />
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-emerald-600 text-white text-sm font-medium py-2.5 hover:bg-emerald-700 transition"
+                    >
+                      Call
+                    </button>
+                  </form>
+                  <WhatsAppButton fullWidth phone={lead.phone} name={lead.name} />
+                </div>
+              </li>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </ul>
+
+          {/* Desktop: table (scrolls horizontally instead of clipping) */}
+          <div className="hidden md:block rounded-2xl bg-white ring-1 ring-slate-200 scroll-x">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
+                <tr>
+                  <th className="text-left px-4 py-3">Lead</th>
+                  <th className="text-left px-4 py-3">Source</th>
+                  <th className="text-left px-4 py-3">Labels</th>
+                  {role === "MANAGER" ? <th className="text-left px-4 py-3">Assignee</th> : null}
+                  <th className="text-left px-4 py-3">Last contact</th>
+                  <th className="text-right px-4 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((lead) => (
+                  <tr key={lead.id} className="border-t border-slate-100 hover:bg-slate-50">
+                    <td className="px-4 py-3">
+                      <Link href={`/leads/${lead.id}`} prefetch className="font-medium text-slate-900 hover:underline">
+                        {lead.name}
+                      </Link>
+                      <div className="text-xs text-slate-500 tabular-nums">{lead.phone}</div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {lead.source}
+                      {lead.campaignName ? <div className="text-xs text-slate-400">{lead.campaignName}</div> : null}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1 flex-wrap">
+                        <AutoLabelChip label={lead.autoLabel} />
+                        {lead.labels.map((l) => <ManualLabelChip key={l.label} label={l.label} />)}
+                      </div>
+                    </td>
+                    {role === "MANAGER" ? (
+                      <td className="px-4 py-3 text-slate-700">{lead.assignedTo?.name ?? <span className="text-slate-400">Unassigned</span>}</td>
+                    ) : null}
+                    <td className="px-4 py-3 text-slate-500 text-xs">
+                      {lead.lastContactedAt ? new Date(lead.lastContactedAt).toLocaleDateString() : "Never"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="inline-flex items-center gap-2">
+                        <form action={startCallForLead}>
+                          <input type="hidden" name="leadId" value={lead.id} />
+                          <button
+                            type="submit"
+                            className="rounded-md bg-emerald-50 text-emerald-700 text-xs font-medium px-2 py-1 ring-1 ring-emerald-200 hover:bg-emerald-100 transition"
+                          >
+                            Call
+                          </button>
+                        </form>
+                        <WhatsAppButton compact phone={lead.phone} name={lead.name} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

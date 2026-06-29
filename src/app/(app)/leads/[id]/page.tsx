@@ -26,27 +26,27 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <Link href="/leads" prefetch className="text-sm text-slate-500 hover:text-slate-800">← All leads</Link>
-          <h1 className="text-2xl font-semibold tracking-tight mt-2">{lead.name}</h1>
-          <div className="mt-1 flex items-center gap-2 text-sm text-slate-500 tabular-nums">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mt-2 break-words">{lead.name}</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-slate-500 tabular-nums">
             <span>{lead.phone}</span>
-            {lead.email ? <><span>•</span><span>{lead.email}</span></> : null}
+            {lead.email ? <><span>•</span><span className="break-all">{lead.email}</span></> : null}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <AutoLabelChip label={lead.autoLabel} />
             {lead.labels.map((l) => <ManualLabelChip key={l.label} label={l.label} />)}
           </div>
         </div>
-        <div className="flex gap-2">
-          <form action={startCallForLead}>
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+          <form action={startCallForLead} className="contents">
             <input type="hidden" name="leadId" value={lead.id} />
-            <button type="submit" className="rounded-lg bg-emerald-600 text-white text-sm font-medium px-3 py-2 hover:bg-emerald-700">
+            <button type="submit" className="rounded-lg bg-emerald-600 text-white text-sm font-medium px-3 py-2.5 hover:bg-emerald-700">
               Call
             </button>
           </form>
-          <WhatsAppButton phone={lead.phone} name={lead.name} />
+          <WhatsAppButton fullWidth phone={lead.phone} name={lead.name} />
         </div>
       </div>
 
@@ -166,12 +166,12 @@ async function CallHistory({ leadId }: { leadId: string }) {
       </div>
       <ul className="mt-3 divide-y divide-slate-100">
         {calls.map((c) => (
-          <li key={c.id} className="py-4 grid grid-cols-12 gap-3 items-start text-sm">
-            <div className="col-span-3 text-xs text-slate-500 tabular-nums">
-              {new Date(c.startedAt).toLocaleString()}
-              <div className="text-slate-400 mt-0.5">{c.user.name}</div>
+          <li key={c.id} className="py-4 grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-3 sm:items-start text-sm">
+            <div className="sm:col-span-3 flex items-center justify-between sm:block text-xs text-slate-500 tabular-nums">
+              <span>{new Date(c.startedAt).toLocaleString()}</span>
+              <span className="text-slate-400 sm:mt-0.5 sm:block">{c.user.name}</span>
             </div>
-            <div className="col-span-2 text-xs">
+            <div className="sm:col-span-2 text-xs flex items-center gap-2 sm:block">
               <span className={`inline-flex items-center rounded-full px-2 py-0.5 ring-1 text-[10px] font-semibold uppercase tracking-wide ${
                 c.outcome === "CONNECTED" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" :
                 c.outcome === "NO_ANSWER" ? "bg-amber-50 text-amber-700 ring-amber-200" :
@@ -179,14 +179,14 @@ async function CallHistory({ leadId }: { leadId: string }) {
                 c.outcome === "FAILED" ? "bg-red-50 text-red-700 ring-red-200" :
                 "bg-slate-100 text-slate-700 ring-slate-200"
               }`}>{c.outcome}</span>
-              <div className="text-slate-500 tabular-nums mt-0.5">{c.durationSec ?? 0}s</div>
+              <span className="text-slate-500 tabular-nums sm:mt-0.5 sm:block">{c.durationSec ?? 0}s</span>
             </div>
-            <div className="col-span-4 text-[11px] text-slate-600 space-y-0.5">
+            <div className="sm:col-span-4 text-[11px] text-slate-600 space-y-0.5">
               {c.fromNumber ? <div><span className="text-slate-400">from </span><span className="font-mono">{c.fromNumber}</span></div> : null}
               {c.agentPhone ? <div><span className="text-slate-400">agent </span><span className="font-mono">{c.agentPhone}</span></div> : null}
               {c.providerCallSid ? <div><span className="text-slate-400">sid </span><span className="font-mono truncate inline-block max-w-full align-bottom" title={c.providerCallSid}>{c.providerCallSid}</span></div> : null}
             </div>
-            <div className="col-span-3 text-xs text-slate-600 break-words">
+            <div className="sm:col-span-3 text-xs text-slate-600 break-words">
               {c.feedbackNote ?? <span className="text-slate-400">no note</span>}
               {c.recordingUrl ? (
                 <div className="mt-1">

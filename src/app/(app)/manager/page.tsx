@@ -3,31 +3,46 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getAutoAssignMode } from "@/lib/settings";
-import { listActiveCalls, talkTimeBySalesperson, formatDuration, startOfTodayUTC, startOfWeek } from "@/lib/calls/queries";
+import {
+  listActiveCalls,
+  talkTimeBySalesperson,
+  teamCallStats,
+  formatDuration,
+  startOfTodayUTC,
+  startOfWeek,
+} from "@/lib/calls/queries";
+import { leadFunnel } from "@/lib/leads/queries";
 import { ActiveCalls } from "@/components/ActiveCalls";
 
 export default async function ManagerHome() {
   const session = await auth();
   if (session?.user.role !== "MANAGER") redirect("/");
 
+  const todayStart = startOfTodayUTC();
+  const weekStart = startOfWeek();
+
   const [
     totalUsers,
     activeSalespeople,
-    totalLeads,
+    funnel,
     leadsBySource,
     mode,
     activeCalls,
+    statsToday,
+    statsWeek,
     talkToday,
     talkWeek,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.user.count({ where: { role: "SALESPERSON", active: true } }),
-    prisma.lead.count(),
+    leadFunnel(),
     prisma.lead.groupBy({ by: ["source"], _count: { _all: true } }),
     getAutoAssignMode(),
     listActiveCalls({ userId: session.user.id, role: "MANAGER" }),
-    talkTimeBySalesperson({ since: startOfTodayUTC() }),
-    talkTimeBySalesperson({ since: startOfWeek() }),
+    teamCallStats({ since: todayStart }),
+    teamCallStats({ since: weekStart }),
+    talkTimeBySalesperson({ since: todayStart }),
+    talkTimeBySalesperson({ since: weekStart }),
   ]);
 
   const initialActive = activeCalls.map((c) => ({
@@ -39,7 +54,10 @@ export default async function ManagerHome() {
     phone: c.lead.phone,
   }));
 
-  const byUser = new Map<string, { name: string; today: number; week: number; todayCalls: number; weekCalls: number; weekConnected: number }>();
+  const byUser = new Map<
+    string,
+    { name: string; today: number; week: number; todayCalls: number; weekCalls: number; weekConnected: number }
+  >();
   for (const r of talkToday) {
     byUser.set(r.userId, {
       name: r.name,
@@ -65,14 +83,14 @@ export default async function ManagerHome() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Manager dashboard</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Manager dashboard</h1>
           <p className="text-slate-500 mt-1 text-sm">
-            Live call activity, talk time per salesperson, and ingestion controls.
+            Live calls, picked vs not-picked, talk time per salesperson, and lead funnel.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/manager/users" prefetch className="rounded-lg ring-1 ring-slate-300 text-slate-700 text-sm font-medium px-3 py-2 hover:bg-slate-50">
             Users
           </Link>
@@ -80,64 +98,111 @@ export default async function ManagerHome() {
             Import CSV
           </Link>
           <Link href="/manager/settings" prefetch className="rounded-lg bg-slate-900 text-white text-sm font-medium px-3 py-2 hover:bg-slate-800">
-            Ingestion settings
+            Ingestion
           </Link>
         </div>
       </div>
 
-      <div className="grid sm:grid-cols-4 gap-4">
-        <Stat label="Total leads" value={String(totalLeads)} />
-        <Stat label="Active salespeople" value={String(activeSalespeople)} />
-        <Stat label="Total users" value={String(totalUsers)} />
+      {/* Headline stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <Stat label="Total leads" value={String(funnel.total)} />
+        <Stat label="Contacted" value={String(funnel.contacted)} sub={`${funnel.uncontacted} not yet`} accent="emerald" />
+        <Stat label="Active salespeople" value={String(activeSalespeople)} sub={`${totalUsers} users total`} />
         <Stat label="Auto-assign" value={mode === "round_robin" ? "Round-robin" : "Unassigned"} />
       </div>
 
-      <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-6">
+      {/* Call performance: today + this week */}
+      <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-4 sm:p-6">
+        <h2 className="font-medium">Call performance</h2>
+        <p className="text-xs text-slate-500 mt-1">Picked = connected calls · Not picked = no-answer / busy / failed.</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <PerfBlock title="Today" stats={statsToday} />
+          <PerfBlock title="This week" stats={statsWeek} />
+        </div>
+      </section>
+
+      {/* Live calls */}
+      <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-4 sm:p-6">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">Active calls right now</h2>
-          <span className="text-xs text-slate-500">live · updates every 4s</span>
+          <span className="text-xs text-slate-500">live · 4s</span>
         </div>
         <div className="mt-3">
           <ActiveCalls initial={initialActive} fetchUrl="/api/calls/active-list" />
         </div>
       </section>
 
-      <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-6">
+      {/* Talk time per salesperson — table on desktop, cards on mobile */}
+      <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-4 sm:p-6">
         <h2 className="font-medium">Talk time by salesperson</h2>
-        <p className="text-xs text-slate-500 mt-1">Sum of recorded call durations.</p>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="text-left pb-2">Salesperson</th>
-                <th className="text-right pb-2">Today calls</th>
-                <th className="text-right pb-2">Today talk</th>
-                <th className="text-right pb-2">Week calls</th>
-                <th className="text-right pb-2">Connected</th>
-                <th className="text-right pb-2">Week talk</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {talkRows.length === 0 ? (
-                <tr><td colSpan={6} className="py-6 text-center text-slate-500">No calls logged yet.</td></tr>
-              ) : talkRows.map((r) => (
-                <tr key={r.name}>
-                  <td className="py-2 font-medium">{r.name}</td>
-                  <td className="py-2 text-right tabular-nums">{r.todayCalls}</td>
-                  <td className="py-2 text-right tabular-nums">{formatDuration(r.today)}</td>
-                  <td className="py-2 text-right tabular-nums">{r.weekCalls}</td>
-                  <td className="py-2 text-right tabular-nums text-emerald-700">{r.weekConnected}</td>
-                  <td className="py-2 text-right tabular-nums font-semibold">{formatDuration(r.week)}</td>
-                </tr>
+        <p className="text-xs text-slate-500 mt-1">Calls placed and time talked, today and this week.</p>
+
+        {talkRows.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-500">No calls logged yet.</p>
+        ) : (
+          <>
+            {/* Mobile cards */}
+            <ul className="mt-4 space-y-3 md:hidden">
+              {talkRows.map((r) => (
+                <li key={r.name} className="rounded-xl ring-1 ring-slate-200 p-3">
+                  <div className="font-medium">{r.name}</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <KV label="Today calls" value={String(r.todayCalls)} />
+                    <KV label="Today talk" value={formatDuration(r.today)} />
+                    <KV label="Week calls" value={String(r.weekCalls)} />
+                    <KV label="Connected" value={String(r.weekConnected)} accent="emerald" />
+                    <KV label="Week talk" value={formatDuration(r.week)} strong />
+                  </div>
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ul>
+
+            {/* Desktop table */}
+            <div className="mt-4 hidden md:block scroll-x">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="text-left pb-2">Salesperson</th>
+                    <th className="text-right pb-2">Today calls</th>
+                    <th className="text-right pb-2">Today talk</th>
+                    <th className="text-right pb-2">Week calls</th>
+                    <th className="text-right pb-2">Connected</th>
+                    <th className="text-right pb-2">Week talk</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {talkRows.map((r) => (
+                    <tr key={r.name}>
+                      <td className="py-2 font-medium">{r.name}</td>
+                      <td className="py-2 text-right tabular-nums">{r.todayCalls}</td>
+                      <td className="py-2 text-right tabular-nums">{formatDuration(r.today)}</td>
+                      <td className="py-2 text-right tabular-nums">{r.weekCalls}</td>
+                      <td className="py-2 text-right tabular-nums text-emerald-700">{r.weekConnected}</td>
+                      <td className="py-2 text-right tabular-nums font-semibold">{formatDuration(r.week)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* Lead funnel */}
+      <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-4 sm:p-6">
+        <h2 className="font-medium">Lead funnel</h2>
+        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Funnel label="New" value={funnel.new} />
+          <Funnel label="In progress" value={funnel.inProgress} accent="sky" />
+          <Funnel label="Won" value={funnel.won} accent="emerald" />
+          <Funnel label="Lost" value={funnel.lost} accent="red" />
         </div>
       </section>
 
-      <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-6">
+      {/* Leads by source */}
+      <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-4 sm:p-6">
         <h2 className="font-medium">Leads by source</h2>
-        <ul className="mt-3 text-sm grid sm:grid-cols-3 gap-3">
+        <ul className="mt-3 text-sm grid grid-cols-1 sm:grid-cols-3 gap-3">
           {leadsBySource.map((b) => (
             <li key={b.source} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
               <span className="text-slate-700">{b.source}</span>
@@ -151,11 +216,67 @@ export default async function ManagerHome() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: "emerald" }) {
   return (
-    <div className="rounded-2xl bg-white ring-1 ring-slate-200 p-5">
-      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="text-3xl font-semibold mt-1">{value}</div>
+    <div className="rounded-2xl bg-white ring-1 ring-slate-200 p-4 sm:p-5">
+      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`text-2xl sm:text-3xl font-semibold mt-1 tabular-nums ${accent === "emerald" ? "text-emerald-700" : ""}`}>{value}</div>
+      {sub ? <div className="text-xs text-slate-400 mt-0.5">{sub}</div> : null}
+    </div>
+  );
+}
+
+function PerfBlock({
+  title,
+  stats,
+}: {
+  title: string;
+  stats: { total: number; connected: number; notPicked: number; talkSec: number; connectRate: number };
+}) {
+  return (
+    <div className="rounded-xl ring-1 ring-slate-200 p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium text-slate-700">{title}</div>
+        <div className="text-xs text-slate-500">{stats.connectRate}% picked up</div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+        <Cell label="Calls" value={String(stats.total)} />
+        <Cell label="Talk time" value={formatDuration(stats.talkSec)} />
+        <Cell label="Picked" value={String(stats.connected)} accent="emerald" />
+        <Cell label="Not picked" value={String(stats.notPicked)} accent="amber" />
+      </div>
+    </div>
+  );
+}
+
+function Cell({ label, value, accent }: { label: string; value: string; accent?: "emerald" | "amber" }) {
+  const tint = accent === "emerald" ? "text-emerald-700" : accent === "amber" ? "text-amber-700" : "text-slate-900";
+  return (
+    <div className="rounded-lg bg-slate-50 px-2 py-2">
+      <div className={`text-lg font-semibold tabular-nums ${tint}`}>{value}</div>
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
+    </div>
+  );
+}
+
+function Funnel({ label, value, accent }: { label: string; value: number; accent?: "sky" | "emerald" | "red" }) {
+  const tint =
+    accent === "emerald" ? "text-emerald-700" :
+    accent === "sky" ? "text-sky-700" :
+    accent === "red" ? "text-red-700" : "text-slate-900";
+  return (
+    <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 px-3 py-3">
+      <div className={`text-2xl font-semibold tabular-nums ${tint}`}>{value}</div>
+      <div className="text-[11px] uppercase tracking-wide text-slate-500 mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+function KV({ label, value, accent, strong }: { label: string; value: string; accent?: "emerald"; strong?: boolean }) {
+  return (
+    <div className="flex items-center justify-between rounded-lg bg-slate-50 px-2 py-1.5">
+      <span className="text-slate-500">{label}</span>
+      <span className={`tabular-nums ${strong ? "font-semibold" : ""} ${accent === "emerald" ? "text-emerald-700" : "text-slate-800"}`}>{value}</span>
     </div>
   );
 }
