@@ -6,6 +6,9 @@ export const SETTING_KEYS = {
   AUTO_ASSIGN_MODE: "AUTO_ASSIGN_MODE",
   GOOGLE_SHEET_ID: "GOOGLE_SHEET_ID",
   GOOGLE_SHEET_RANGE: "GOOGLE_SHEET_RANGE",
+  GOOGLE_SHEET_URL: "GOOGLE_SHEET_URL",
+  AUTO_SYNC_SHEET: "AUTO_SYNC_SHEET",
+  LAST_SHEET_SYNC: "LAST_SHEET_SYNC",
 } as const;
 
 export async function getSetting(key: string): Promise<string | null> {

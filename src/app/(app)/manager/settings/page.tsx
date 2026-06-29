@@ -3,8 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getAllSettings, getAutoAssignMode, SETTING_KEYS } from "@/lib/settings";
-import { updateSettingsAction } from "@/lib/leads/settings-actions";
-import { syncSheetAction } from "@/lib/leads/import-actions";
+import { updateSettingsAction, syncSheetNowAction } from "@/lib/leads/settings-actions";
 
 export default async function SettingsPage({
   searchParams,
@@ -26,11 +25,12 @@ export default async function SettingsPage({
   const origin = `${proto}://${host}`;
   const webhookUrl = `${origin}/api/webhooks/meta`;
   const cronUrl = `${origin}/api/cron/sync-sheet?secret=YOUR_CRON_SECRET`;
-  const sheetId = settings[SETTING_KEYS.GOOGLE_SHEET_ID] ?? "";
-  const sheetRange = settings[SETTING_KEYS.GOOGLE_SHEET_RANGE] ?? "";
+  const sheetUrl = settings[SETTING_KEYS.GOOGLE_SHEET_URL] ?? "";
   const autoSyncSheet = settings["AUTO_SYNC_SHEET"] === "true";
+  const lastSync = settings[SETTING_KEYS.LAST_SHEET_SYNC]
+    ? new Date(Number(settings[SETTING_KEYS.LAST_SHEET_SYNC])).toLocaleString()
+    : null;
   const slaMinutes = settings["SLA_CONNECT_MINUTES"] ?? "5";
-  const hasGoogleCreds = Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
   const hasMetaCreds = Boolean(process.env.META_APP_SECRET && process.env.META_VERIFY_TOKEN);
   const metaDevBypass = process.env.META_DEV_MODE === "true";
 
@@ -47,14 +47,20 @@ export default async function SettingsPage({
       {sp.saved ? (
         <div className="rounded-lg bg-emerald-50 text-emerald-800 text-sm px-3 py-2 ring-1 ring-emerald-100">Settings saved.</div>
       ) : null}
-      {sp.sync === "ok" ? (
+      {sp.synced ? (
         <div className="rounded-lg bg-emerald-50 text-emerald-800 text-sm px-3 py-2 ring-1 ring-emerald-100">
-          Synced: {sp.created} created · {sp.duplicates} dups · {sp.errors} errors
+          Synced from sheet: {sp.created} new leads · {sp.dups} existing · {sp.labeled} labels · {sp.notes} notes added.
         </div>
       ) : null}
-      {sp.sync === "fail" ? (
+      {sp.syncerr ? (
         <div className="rounded-lg bg-amber-50 text-amber-800 text-sm px-3 py-2 ring-1 ring-amber-100">
-          Sync failed: {sp.reason}
+          Sync failed: {sp.syncerr === "not_public"
+            ? "the sheet isn't shared publicly — set it to 'Anyone with the link can view'."
+            : sp.syncerr === "not_configured"
+            ? "paste the Google Sheet link below and Save first."
+            : sp.syncerr === "columns_not_found"
+            ? "couldn't find name/phone columns in the sheet."
+            : sp.syncerr}
         </div>
       ) : null}
 
@@ -77,37 +83,31 @@ export default async function SettingsPage({
           </label>
         </div>
 
-        <h2 className="font-medium pt-4 border-t border-slate-100">Google Sheet</h2>
+        <h2 className="font-medium pt-4 border-t border-slate-100">Google Sheet (Meta Lead Ads export)</h2>
         <label className="block">
-          <span className="text-sm font-medium text-slate-700">Spreadsheet ID</span>
+          <span className="text-sm font-medium text-slate-700">Google Sheet link</span>
           <input
-            name="googleSheetId"
-            defaultValue={sheetId}
-            placeholder="From the sheet URL"
+            name="googleSheetUrl"
+            defaultValue={sheetUrl}
+            placeholder="https://docs.google.com/spreadsheets/d/…/edit?gid=…"
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none font-mono"
           />
+          <span className="text-xs text-slate-500 mt-1 block">
+            Paste the full link. The sheet must be shared as <strong>“Anyone with the link → Viewer”</strong>.
+            Standard Meta columns (full_name, phone_number, campaign_name, email) are auto-detected, and the
+            team’s hand-filled columns (call 1 / 2nd call / whatsapp update / response) become labels + a
+            feedback note on each lead.
+          </span>
         </label>
-        <label className="block">
-          <span className="text-sm font-medium text-slate-700">Range</span>
-          <input
-            name="googleSheetRange"
-            defaultValue={sheetRange || "Sheet1!A2:E"}
-            placeholder="Sheet1!A2:E"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none font-mono"
-          />
-        </label>
-        <p className="text-xs text-slate-500">
-          Columns assumed positional: <code>name, phone, email, campaign</code>.
-          {hasGoogleCreds ? null : (
-            <span className="text-amber-700"> Google service account not configured yet — set <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> in <code>.env</code>.</span>
-          )}
-        </p>
 
         <label className="flex items-center gap-3 text-sm pt-2">
           <input type="checkbox" name="autoSyncSheet" defaultChecked={autoSyncSheet} />
           <div>
-            <div className="font-medium">Continuously sync the sheet</div>
-            <div className="text-slate-500 text-xs">Pulls new rows every 5 minutes automatically.</div>
+            <div className="font-medium">Keep this sheet synced automatically</div>
+            <div className="text-slate-500 text-xs">
+              Re-pulls about every 10 minutes whenever the team’s app is syncing calls.
+              {lastSync ? <> Last sync: {lastSync}.</> : null}
+            </div>
           </div>
         </label>
 
@@ -122,7 +122,7 @@ export default async function SettingsPage({
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
           />
           <span className="text-xs text-slate-500 mt-1 block">
-            If a new lead isn't <strong>connected</strong> within this many minutes of assignment, the salesperson and all active managers get a notification.
+            If a new lead is not <strong>connected</strong> within this many minutes of assignment, the salesperson and all active managers get a notification.
           </span>
         </label>
 
@@ -133,9 +133,11 @@ export default async function SettingsPage({
 
       <div className="rounded-2xl bg-white ring-1 ring-slate-200 p-6 space-y-3">
         <h2 className="font-medium">Sync now</h2>
-        <p className="text-xs text-slate-500">Pull rows from the configured Sheet and ingest them.</p>
-        <form action={syncSheetAction}>
-          <button type="submit" className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2">Run sync</button>
+        <p className="text-xs text-slate-500">
+          Pull the configured sheet immediately — imports new leads and applies labels + feedback notes from the team’s columns.
+        </p>
+        <form action={syncSheetNowAction}>
+          <button type="submit" className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2">Sync now</button>
         </form>
       </div>
 

@@ -5,6 +5,7 @@ import { verifyApiToken } from "@/lib/tokens";
 import { phoneTail } from "@/lib/phone";
 import { applyCallStatusUpdate } from "@/lib/calls/handlers";
 import { runIdleAgentCheck } from "@/lib/idle";
+import { maybeAutoSyncSheet } from "@/lib/integrations/sheet-sync";
 
 export const runtime = "nodejs";
 
@@ -158,6 +159,8 @@ export async function POST(req: NextRequest) {
   // where in-process schedulers don't run) to check if this salesperson has
   // gone quiet for too long and alert them + managers.
   try { await runIdleAgentCheck({ userId: user.id }); } catch { /* non-fatal */ }
+  // Keep the Google Sheet in sync without a cron (throttled internally).
+  try { await maybeAutoSyncSheet(); } catch { /* non-fatal */ }
 
   return NextResponse.json({ ok: true, created, updated, skipped, results });
 }
