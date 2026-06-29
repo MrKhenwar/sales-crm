@@ -3,6 +3,7 @@ package com.crm.calllogsync.data
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.crm.calllogsync.BuildConfig
 
 /** Stores server URL + bearer token in an encrypted shared-prefs file. */
 class Prefs(context: Context) {
@@ -18,8 +19,12 @@ class Prefs(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
+    /** Falls back to the build-time default server URL when nothing is saved yet. */
     var serverUrl: String
-        get() = sp.getString(KEY_SERVER, "") ?: ""
+        get() {
+            val saved = sp.getString(KEY_SERVER, "") ?: ""
+            return saved.ifBlank { BuildConfig.DEFAULT_SERVER_URL.trimEnd('/') }
+        }
         set(v) = sp.edit().putString(KEY_SERVER, v.trimEnd('/')).apply()
 
     var token: String
