@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { SubmitButton } from "@/components/SubmitButton";
 
 type Lead = { id: string; name: string; phone: string };
 type CallSnapshot = {
@@ -160,9 +161,9 @@ function FeedbackModal({
           <button type="button" onClick={onClose} className="text-sm text-slate-500 hover:text-slate-800 px-3 py-2">
             Skip
           </button>
-          <button type="submit" className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2">
-            Save & next
-          </button>
+          <SubmitButton pendingLabel="Saving…" className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2">
+            Save &amp; next
+          </SubmitButton>
         </div>
       </form>
     </div>

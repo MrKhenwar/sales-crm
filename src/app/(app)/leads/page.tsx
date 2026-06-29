@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 import { listLeadsForUser, listActiveSalespeople, type LeadFilters } from "@/lib/leads/queries";
+import { assignAllUnassigned, bulkReassignByLabel, reassignFromUser } from "@/lib/leads/actions";
 import { AutoLabelChip, ManualLabelChip, AUTO_LABEL_TEXT } from "@/components/Labels";
+import { ManagerAssignBar } from "@/components/ManagerAssignBar";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { CallButton } from "@/components/CallButton";
 import type { AutoLabel, LeadSource, ManualLabel } from "@/generated/prisma/enums";
@@ -39,18 +42,24 @@ export default async function LeadsPage({
     sort: asEnum(sp.sort, ["newest", "uncontacted", "redial_due"] as const),
   };
 
-  const [{ items, total }, salespeople] = await Promise.all([
+  const [{ items, total }, salespeople, unassignedCount] = await Promise.all([
     listLeadsForUser({ userId: session.user.id, role, filters, take: 100 }),
     role === "MANAGER" ? listActiveSalespeople() : Promise.resolve([]),
+    role === "MANAGER" ? prisma.lead.count({ where: { assignedToUserId: null } }) : Promise.resolve(0),
   ]);
+
+  const assignedCount = typeof sp.assigned === "string" ? sp.assigned : undefined;
+  const errorMsg = typeof sp.error === "string" ? sp.error : undefined;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Leads</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
+            {role === "MANAGER" ? "Leads" : "Assigned to you"}
+          </h1>
           <p className="text-slate-500 mt-1 text-sm">
-            {role === "MANAGER" ? "All leads across the team." : "Your assigned leads."} {total} total.
+            {role === "MANAGER" ? "All leads across the team." : "Leads assigned to you to call."} {total} total.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -68,6 +77,25 @@ export default async function LeadsPage({
           </Link>
         </div>
       </div>
+
+      {assignedCount !== undefined ? (
+        <div className="rounded-lg bg-emerald-50 text-emerald-800 text-sm px-3 py-2 ring-1 ring-emerald-100">
+          {assignedCount} lead{assignedCount === "1" ? "" : "s"} assigned.
+        </div>
+      ) : null}
+      {errorMsg ? (
+        <div className="rounded-lg bg-amber-50 text-amber-800 text-sm px-3 py-2 ring-1 ring-amber-100">{errorMsg}</div>
+      ) : null}
+
+      {role === "MANAGER" ? (
+        <ManagerAssignBar
+          salespeople={salespeople}
+          unassignedCount={unassignedCount}
+          assignAllAction={assignAllUnassigned}
+          reassignByLabelAction={bulkReassignByLabel}
+          reassignFromUserAction={reassignFromUser}
+        />
+      ) : null}
 
       <form
         method="GET"

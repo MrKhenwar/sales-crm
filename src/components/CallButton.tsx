@@ -1,6 +1,7 @@
 "use client";
 
 import { startCallForLead } from "@/lib/calls/actions";
+import { SubmitButton } from "@/components/SubmitButton";
 
 /**
  * Call action that actually dials on a phone.
@@ -32,13 +33,15 @@ export function CallButton({
     <form
       action={startCallForLead}
       className={fullWidth && !compact ? "contents" : undefined}
-      onSubmit={() => {
-        try { window.location.href = tel; } catch { /* ignore */ }
-      }}
     >
       <input type="hidden" name="leadId" value={leadId} />
       {sessionId ? <input type="hidden" name="sessionId" value={sessionId} /> : null}
-      <button type="submit" className={cls}>
+      <SubmitButton
+        className={cls}
+        pendingLabel={compact ? "…" : "Calling…"}
+        // Fire the native dialer inside the tap gesture (a redirect on load is blocked).
+        onClick={() => { try { window.location.href = tel; } catch { /* ignore */ } }}
+      >
         {compact ? "Call" : (
           <>
             <svg aria-hidden viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
@@ -47,7 +50,7 @@ export function CallButton({
             Call
           </>
         )}
-      </button>
+      </SubmitButton>
     </form>
   );
 }

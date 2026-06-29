@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SubmitButton } from "@/components/SubmitButton";
 
 type Lead = { id: string; name: string; phone: string };
 
@@ -149,9 +150,9 @@ export function DirectCallPanel({
         </fieldset>
 
         <div className="flex justify-end gap-2 pt-2">
-          <button type="submit" className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2">
-            Save & next
-          </button>
+          <SubmitButton pendingLabel="Saving…" className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2">
+            Save &amp; next
+          </SubmitButton>
         </div>
       </form>
     </div>

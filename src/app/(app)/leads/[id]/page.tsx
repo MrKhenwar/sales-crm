@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { getLeadById, listActiveSalespeople } from "@/lib/leads/queries";
 import { applyManualLabel, removeManualLabel, updateLead, assignLead, deleteLead, addLeadNote } from "@/lib/leads/actions";
 import { AutoLabelChip, ManualLabelChip, MANUAL_LABELS } from "@/components/Labels";
+import { LabelToggles } from "@/components/LabelToggles";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { CallButton } from "@/components/CallButton";
 import { prisma } from "@/lib/prisma";
@@ -81,28 +82,13 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-6">
           <h2 className="font-medium">Manual labels</h2>
           <p className="text-xs text-slate-500 mt-1">Stack on top of the call state. Click to toggle.</p>
-          <div className="mt-4 flex gap-2 flex-wrap">
-            {MANUAL_LABELS.map((label) => {
-              const isOn = applied.has(label);
-              const formAction = isOn ? removeManualLabel : applyManualLabel;
-              return (
-                <form key={label} action={formAction}>
-                  <input type="hidden" name="leadId" value={lead.id} />
-                  <input type="hidden" name="label" value={label} />
-                  <button
-                    type="submit"
-                    className={
-                      isOn
-                        ? "rounded-full text-xs font-semibold px-3 py-1 bg-slate-900 text-white"
-                        : "rounded-full text-xs font-semibold px-3 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    }
-                  >
-                    {label}
-                  </button>
-                </form>
-              );
-            })}
-          </div>
+          <LabelToggles
+            leadId={lead.id}
+            labels={MANUAL_LABELS}
+            applied={[...applied]}
+            applyAction={applyManualLabel}
+            removeAction={removeManualLabel}
+          />
         </section>
 
         <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-6">

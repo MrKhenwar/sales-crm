@@ -27,17 +27,18 @@ export async function startCallForLead(formData: FormData): Promise<void> {
   const leadId = String(formData.get("leadId") ?? "");
   if (!leadId) redirect("/leads");
 
-  const lead = await prisma.lead.findUnique({
-    where: { id: leadId },
-    select: { id: true, phone: true, assignedToUserId: true },
-  });
+  // One round-trip for the lead, the agent's phone, and any open session.
+  const [lead, me, existingSession] = await Promise.all([
+    prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { id: true, phone: true, assignedToUserId: true },
+    }),
+    prisma.user.findUnique({ where: { id: user.id }, select: { phone: true } }),
+    prisma.callSession.findFirst({ where: { userId: user.id, endedAt: null } }),
+  ]);
   if (!lead) redirect("/leads");
   if (user.role !== "MANAGER" && lead.assignedToUserId !== user.id) redirect("/leads");
 
-  const me = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { phone: true },
-  });
   const agentPhone = me?.phone;
   if (!agentPhone) {
     redirect(`/leads/${leadId}?error=${encodeURIComponent("Your account has no phone configured")}`);
@@ -45,9 +46,6 @@ export async function startCallForLead(formData: FormData): Promise<void> {
 
   // Auto-start a CallSession if one isn't open — clicking Call anywhere
   // means "I'm dialing right now", so we should track it.
-  const existingSession = await prisma.callSession.findFirst({
-    where: { userId: user.id, endedAt: null },
-  });
   if (!existingSession) {
     await prisma.callSession.create({ data: { userId: user.id } });
   } else if (existingSession.pausedAt) {
@@ -210,31 +208,36 @@ export async function submitCallFeedback(formData: FormData): Promise<void> {
     }
   }
 
-  await prisma.call.update({
-    where: { id: callId },
-    data: callData,
-  });
+  // These writes are independent of each other — run them together to cut latency
+  // so the next lead loads fast.
+  const writes: Promise<unknown>[] = [
+    prisma.call.update({ where: { id: callId }, data: callData }),
+  ];
 
   if (label) {
-    await prisma.leadLabel.upsert({
-      where: { leadId_label: { leadId: call.leadId, label } },
-      update: { appliedBy: user.id, appliedAt: new Date() },
-      create: { leadId: call.leadId, label, appliedBy: user.id },
-    });
+    writes.push(
+      prisma.leadLabel.upsert({
+        where: { leadId_label: { leadId: call.leadId, label } },
+        update: { appliedBy: user.id, appliedAt: new Date() },
+        create: { leadId: call.leadId, label, appliedBy: user.id },
+      }),
+    );
   }
 
-  if (redialIn) {
-    const hours = parseFloat(redialIn);
-    if (!Number.isNaN(hours) && hours > 0) {
-      await prisma.lead.update({
+  const hours = redialIn ? parseFloat(redialIn) : NaN;
+  if (!Number.isNaN(hours) && hours > 0) {
+    writes.push(
+      prisma.lead.update({
         where: { id: call.leadId },
         data: {
           nextRedialAt: new Date(Date.now() + hours * 3600_000),
           autoLabel: "REDIAL",
         },
-      });
-    }
+      }),
+    );
   }
+
+  await Promise.all(writes);
 
   revalidatePath("/dialer");
   revalidatePath(`/leads/${call.leadId}`);

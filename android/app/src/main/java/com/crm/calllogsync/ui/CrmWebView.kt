@@ -64,13 +64,31 @@ fun CrmWebView(serverUrl: String, onBackPressed: () -> Unit = {}, modifier: Modi
                         "tel", "sms", "mailto" -> openExternal(url)
                         "https", "http" -> {
                             val host = url.host ?: ""
-                            // External: open in default browser; same-origin: stay in WebView
+                            // WhatsApp links must always open the WhatsApp Business app.
                             if (host == "wa.me" || host.endsWith(".whatsapp.com")) {
-                                openExternal(url)
+                                openWhatsApp(url)
                             } else false
                         }
                         else -> openExternal(url)
                     }
+                }
+
+                /** Always prefer WhatsApp Business; fall back to personal WhatsApp, then any handler. */
+                private fun openWhatsApp(uri: Uri): Boolean {
+                    for (pkg in listOf("com.whatsapp.w4b", "com.whatsapp")) {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                setPackage(pkg)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                            return true
+                        } catch (_: ActivityNotFoundException) {
+                            // package not installed — try the next one
+                        }
+                    }
+                    // Neither WhatsApp app present — let the system decide (browser / chooser).
+                    return openExternal(uri)
                 }
 
                 private fun openExternal(uri: Uri): Boolean {
