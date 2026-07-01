@@ -36,6 +36,22 @@ export function parseSheetUrl(input: string): { id: string; gid: string | null }
   return { id: idMatch[1], gid: gidMatch ? gidMatch[1] : null };
 }
 
+/**
+ * Split the stored setting (many sheet links, one per line — or comma /
+ * whitespace separated) into a de-duplicated list of individual sheet URLs.
+ */
+export function parseSheetUrls(input: string | null | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of (input ?? "").split(/[\n,]+/)) {
+    const v = raw.trim();
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
 export function csvExportUrl(id: string, gid: string | null): string {
   return `https://docs.google.com/spreadsheets/d/${id}/export?format=csv${gid ? `&gid=${gid}` : ""}`;
 }
@@ -180,13 +196,41 @@ export async function syncSheetFromUrl(url: string): Promise<SheetSyncResult> {
   return result;
 }
 
-/** Sync the sheet saved in settings (used by the manual button + scheduler). */
+/**
+ * Sync every sheet saved in settings (used by the manual button + scheduler).
+ * The setting holds one or more sheet links; we pull each and add up the totals
+ * so leads from all of them land in the CRM.
+ */
 export async function syncConfiguredSheet(): Promise<SheetSyncResult> {
-  const url = await getSetting(SETTING_KEYS.GOOGLE_SHEET_URL);
-  if (!url) return { ok: false, reason: "not_configured", total: 0, created: 0, duplicates: 0, labeled: 0, notes: 0, skipped: 0 };
-  const r = await syncSheetFromUrl(url);
+  const urls = parseSheetUrls(await getSetting(SETTING_KEYS.GOOGLE_SHEET_URL));
+  const empty = (extra?: Partial<SheetSyncResult>): SheetSyncResult => ({
+    ok: false, total: 0, created: 0, duplicates: 0, labeled: 0, notes: 0, skipped: 0, ...extra,
+  });
+  if (urls.length === 0) return empty({ reason: "not_configured" });
+
+  const agg: SheetSyncResult = { ok: true, total: 0, created: 0, duplicates: 0, labeled: 0, notes: 0, skipped: 0 };
+  let lastReason: string | undefined;
+  let anyOk = false;
+  for (const url of urls) {
+    const r = await syncSheetFromUrl(url);
+    if (r.ok) {
+      anyOk = true;
+      agg.total += r.total;
+      agg.created += r.created;
+      agg.duplicates += r.duplicates;
+      agg.labeled += r.labeled;
+      agg.notes += r.notes;
+      agg.skipped += r.skipped;
+    } else {
+      lastReason = r.reason;
+    }
+  }
   await setSetting(SETTING_KEYS.LAST_SHEET_SYNC, String(Date.now()));
-  return r;
+  // If nothing synced successfully, surface the last failure reason.
+  if (!anyOk) return empty({ reason: lastReason ?? "fetch_failed" });
+  agg.ok = true;
+  if (lastReason) agg.reason = lastReason; // partial success — some sheets failed
+  return agg;
 }
 
 /**

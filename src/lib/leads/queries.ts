@@ -38,9 +38,14 @@ export async function listLeadsForUser(opts: {
     ];
   }
 
-  let orderBy: Prisma.LeadOrderByWithRelationInput | Prisma.LeadOrderByWithRelationInput[] = { createdAt: "desc" };
-  if (filters.sort === "uncontacted") {
-    orderBy = [{ lastContactedAt: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }];
+  // Default: leads that still need a call float to the top; leads already
+  // called (lastContactedAt set) sink to the bottom.
+  let orderBy: Prisma.LeadOrderByWithRelationInput | Prisma.LeadOrderByWithRelationInput[] = [
+    { lastContactedAt: { sort: "asc", nulls: "first" } },
+    { createdAt: "desc" },
+  ];
+  if (filters.sort === "newest") {
+    orderBy = { createdAt: "desc" };
   } else if (filters.sort === "redial_due") {
     orderBy = [{ nextRedialAt: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }];
   }

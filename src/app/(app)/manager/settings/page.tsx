@@ -3,7 +3,10 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getAllSettings, getAutoAssignMode, SETTING_KEYS } from "@/lib/settings";
-import { updateSettingsAction, syncSheetNowAction } from "@/lib/leads/settings-actions";
+import { updateSettingsAction } from "@/lib/leads/settings-actions";
+import { parseSheetUrls } from "@/lib/integrations/sheet-sync";
+import { SheetUrlsField } from "@/components/SheetUrlsField";
+import { SyncButton } from "@/components/SyncButton";
 
 export default async function SettingsPage({
   searchParams,
@@ -25,7 +28,7 @@ export default async function SettingsPage({
   const origin = `${proto}://${host}`;
   const webhookUrl = `${origin}/api/webhooks/meta`;
   const cronUrl = `${origin}/api/cron/sync-sheet?secret=YOUR_CRON_SECRET`;
-  const sheetUrl = settings[SETTING_KEYS.GOOGLE_SHEET_URL] ?? "";
+  const sheetUrls = parseSheetUrls(settings[SETTING_KEYS.GOOGLE_SHEET_URL]);
   const autoSyncSheet = settings["AUTO_SYNC_SHEET"] === "true";
   const lastSync = settings[SETTING_KEYS.LAST_SHEET_SYNC]
     ? new Date(Number(settings[SETTING_KEYS.LAST_SHEET_SYNC])).toLocaleString()
@@ -83,22 +86,19 @@ export default async function SettingsPage({
           </label>
         </div>
 
-        <h2 className="font-medium pt-4 border-t border-slate-100">Google Sheet (Meta Lead Ads export)</h2>
-        <label className="block">
-          <span className="text-sm font-medium text-slate-700">Google Sheet link</span>
-          <input
-            name="googleSheetUrl"
-            defaultValue={sheetUrl}
-            placeholder="https://docs.google.com/spreadsheets/d/…/edit?gid=…"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none font-mono"
-          />
-          <span className="text-xs text-slate-500 mt-1 block">
-            Paste the full link. The sheet must be shared as <strong>“Anyone with the link → Viewer”</strong>.
-            Standard Meta columns (full_name, phone_number, campaign_name, email) are auto-detected, and the
-            team’s hand-filled columns (call 1 / 2nd call / whatsapp update / response) become labels + a
-            feedback note on each lead.
+        <h2 className="font-medium pt-4 border-t border-slate-100">Google Sheets (Meta Lead Ads exports)</h2>
+        <div className="block">
+          <span className="text-sm font-medium text-slate-700">Google Sheet links</span>
+          <div className="mt-1">
+            <SheetUrlsField initial={sheetUrls} />
+          </div>
+          <span className="text-xs text-slate-500 mt-2 block">
+            Paste the full link for each sheet — tap <strong>“+ Add another sheet”</strong> for more. Every sheet must be
+            shared as <strong>“Anyone with the link → Viewer”</strong>. Standard Meta columns (full_name, phone_number,
+            campaign_name, email) are auto-detected, and the team’s hand-filled columns (call 1 / 2nd call / whatsapp
+            update / response) become labels + a feedback note on each lead. Sync pulls leads from all of them.
           </span>
-        </label>
+        </div>
 
         <label className="flex items-center gap-3 text-sm pt-2">
           <input type="checkbox" name="autoSyncSheet" defaultChecked={autoSyncSheet} />
@@ -134,11 +134,9 @@ export default async function SettingsPage({
       <div className="rounded-2xl bg-white ring-1 ring-slate-200 p-6 space-y-3">
         <h2 className="font-medium">Sync now</h2>
         <p className="text-xs text-slate-500">
-          Pull the configured sheet immediately — imports new leads and applies labels + feedback notes from the team’s columns.
+          Pull all configured sheets immediately — imports new leads and applies labels + feedback notes from the team’s columns.
         </p>
-        <form action={syncSheetNowAction}>
-          <button type="submit" className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2">Sync now</button>
-        </form>
+        <SyncButton compact className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2 hover:bg-slate-800 disabled:opacity-60" />
       </div>
 
       <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-6 space-y-3">

@@ -25,7 +25,6 @@ function Icon({ path }: { path: string }) {
 const ICONS = {
   leads: "M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1",
   calls: "M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z",
-  dialer: "M12 2v4m0 12v4m10-10h-4M6 12H2m15.07-5.07-2.83 2.83M9.76 14.24l-2.83 2.83m0-10.14 2.83 2.83m4.48 4.48 2.83 2.83",
   manager: "M3 3v18h18M7 16l4-6 3 3 5-7",
   inbox: "M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z",
   profile: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z",
@@ -39,9 +38,9 @@ export function AppNav({ role, userName, unread, signOutAction }: Props) {
   const primary: Item[] = [
     { href: "/leads", label: "Leads", icon: <Icon path={ICONS.leads} /> },
     { href: "/calls", label: "Calls", icon: <Icon path={ICONS.calls} /> },
-    role === "SALESPERSON"
-      ? { href: "/dialer", label: "Dialer", icon: <Icon path={ICONS.dialer} /> }
-      : { href: "/manager", label: "Manager", icon: <Icon path={ICONS.manager} /> },
+    ...(role === "MANAGER"
+      ? [{ href: "/manager", label: "Manager", icon: <Icon path={ICONS.manager} /> }]
+      : []),
     { href: "/notifications", label: "Inbox", icon: <Icon path={ICONS.inbox} /> },
   ];
 
@@ -90,7 +89,7 @@ export function AppNav({ role, userName, unread, signOutAction }: Props) {
 
       {/* Mobile bottom tab bar */}
       <nav className="md:hidden fixed inset-x-0 bottom-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe">
-        <div className="grid grid-cols-5">
+        <div className="grid" style={{ gridTemplateColumns: `repeat(${primary.length + 1}, minmax(0, 1fr))` }}>
           {primary.map((it) => {
             const active = isActive(it.href);
             return (

@@ -3,18 +3,27 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getLeadById, listActiveSalespeople } from "@/lib/leads/queries";
 import { applyManualLabel, removeManualLabel, updateLead, assignLead, deleteLead, addLeadNote } from "@/lib/leads/actions";
+import { submitCallFeedback } from "@/lib/calls/actions";
 import { AutoLabelChip, ManualLabelChip, MANUAL_LABELS } from "@/components/Labels";
 import { LabelToggles } from "@/components/LabelToggles";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { CallButton } from "@/components/CallButton";
+import { DirectCallPanel } from "@/components/DirectCallPanel";
 import { prisma } from "@/lib/prisma";
-import { getCallStatsForLead, formatDuration, ringSeconds, outcomeLabel } from "@/lib/calls/queries";
+import { getCallById, getCallStatsForLead, formatDuration, ringSeconds, outcomeLabel } from "@/lib/calls/queries";
 import type { ManualLabel } from "@/generated/prisma/enums";
 
-export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LeadDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ activeCallId?: string }>;
+}) {
   const session = await auth();
   if (!session?.user) redirect("/login");
   const { id } = await params;
+  const { activeCallId } = await searchParams;
 
   const lead = await getLeadById({ id, userId: session.user.id, role: session.user.role });
   if (!lead) notFound();
@@ -22,6 +31,16 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   const role = session.user.role;
   const isManager = role === "MANAGER";
   const salespeople = isManager ? await listActiveSalespeople() : [];
+
+  // A call was just started for this lead — show the outcome-logging panel so the
+  // salesperson can record how it went (this replaces the old dialer page).
+  const activeCall =
+    activeCallId ? await getCallById(activeCallId) : null;
+  const showCallPanel =
+    activeCall &&
+    activeCall.leadId === lead.id &&
+    activeCall.outcome === "PENDING" &&
+    (activeCall.userId === session.user.id || isManager);
 
   const applied = new Set<ManualLabel>(lead.labels.map((l) => l.label));
 
@@ -45,6 +64,18 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           <WhatsAppButton fullWidth phone={lead.phone} name={lead.name} />
         </div>
       </div>
+
+      {showCallPanel && activeCall ? (
+        <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-5 sm:p-6">
+          <h2 className="font-medium">Log this call</h2>
+          <p className="text-xs text-slate-500 mt-1">Record how the call went — outcome, talk time and any note.</p>
+          <DirectCallPanel
+            callId={activeCall.id}
+            lead={{ id: lead.id, name: lead.name, phone: lead.phone }}
+            submitFeedbackAction={submitCallFeedback}
+          />
+        </section>
+      ) : null}
 
       <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-5 sm:p-6">
         <h2 className="font-medium">Feedback</h2>

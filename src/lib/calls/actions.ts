@@ -71,10 +71,11 @@ export async function startCallForLead(formData: FormData): Promise<void> {
     select: { id: true },
   });
 
-  // Direct mode: salesperson dials from their own phone. We just track the row.
+  // Direct mode: salesperson dials from their own phone. We just track the row
+  // and drop them on the lead page where they log the outcome.
   if (mode === "direct") {
-    revalidatePath("/dialer");
-    redirect(`/dialer?activeCallId=${call.id}`);
+    revalidatePath(`/leads/${leadId}`);
+    redirect(`/leads/${leadId}?activeCallId=${call.id}`);
   }
 
   // Twilio / mock — kick off the provider.
@@ -95,53 +96,8 @@ export async function startCallForLead(formData: FormData): Promise<void> {
     redirect(`/leads/${leadId}?error=${encodeURIComponent("Could not start the call")}`);
   }
 
-  revalidatePath("/dialer");
-  redirect(`/dialer?activeCallId=${call.id}`);
-}
-
-export async function startCallSession(): Promise<void> {
-  const user = await requireUser();
-  const existing = await prisma.callSession.findFirst({
-    where: { userId: user.id, endedAt: null },
-  });
-  if (existing) {
-    if (existing.pausedAt) {
-      await prisma.callSession.update({
-        where: { id: existing.id },
-        data: { pausedAt: null },
-      });
-    }
-    redirect("/dialer");
-  }
-  await prisma.callSession.create({ data: { userId: user.id } });
-  redirect("/dialer");
-}
-
-export async function pauseCallSession(): Promise<void> {
-  const user = await requireUser();
-  const s = await prisma.callSession.findFirst({
-    where: { userId: user.id, endedAt: null },
-  });
-  if (!s) redirect("/dialer");
-  await prisma.callSession.update({
-    where: { id: s.id },
-    data: { pausedAt: s.pausedAt ? null : new Date() },
-  });
-  redirect("/dialer");
-}
-
-export async function endCallSession(): Promise<void> {
-  const user = await requireUser();
-  const s = await prisma.callSession.findFirst({
-    where: { userId: user.id, endedAt: null },
-  });
-  if (s) {
-    await prisma.callSession.update({
-      where: { id: s.id },
-      data: { endedAt: new Date(), pausedAt: null },
-    });
-  }
-  redirect("/dialer");
+  revalidatePath(`/leads/${leadId}`);
+  redirect(`/leads/${leadId}?activeCallId=${call.id}`);
 }
 
 export async function submitCallFeedback(formData: FormData): Promise<void> {
@@ -166,8 +122,8 @@ export async function submitCallFeedback(formData: FormData): Promise<void> {
     where: { id: callId },
     select: { id: true, leadId: true, userId: true, startedAt: true },
   });
-  if (!call) redirect("/dialer");
-  if (call.userId !== user.id && user.role !== "MANAGER") redirect("/dialer");
+  if (!call) redirect("/leads");
+  if (call.userId !== user.id && user.role !== "MANAGER") redirect("/leads");
 
   // If the salesperson is logging a manual outcome (direct mode), apply call-status
   // side effects (Lead.autoLabel, lastContactedAt, nextRedialAt) once, here.
@@ -239,8 +195,7 @@ export async function submitCallFeedback(formData: FormData): Promise<void> {
 
   await Promise.all(writes);
 
-  revalidatePath("/dialer");
   revalidatePath(`/leads/${call.leadId}`);
   revalidatePath("/leads");
-  redirect("/dialer");
+  redirect(`/leads/${call.leadId}`);
 }

@@ -8,14 +8,15 @@ import { AutoLabelChip, ManualLabelChip, AUTO_LABEL_TEXT } from "@/components/La
 import { ManagerAssignBar } from "@/components/ManagerAssignBar";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { CallButton } from "@/components/CallButton";
+import { SyncButton } from "@/components/SyncButton";
 import type { AutoLabel, LeadSource, ManualLabel } from "@/generated/prisma/enums";
 
 const SOURCES: LeadSource[] = ["META", "SHEET", "MANUAL"];
 const AUTO_LABELS: AutoLabel[] = ["NONE", "NOT_PICKED", "CONNECTED", "REDIAL"];
 const MANUAL_LABELS: ManualLabel[] = ["DISPATCH", "BOOKED", "ORDERED", "PAID"];
 const SORTS = [
+  { v: "uncontacted", label: "To-call first (called at bottom)" },
   { v: "newest", label: "Newest first" },
-  { v: "uncontacted", label: "Uncontacted first" },
   { v: "redial_due", label: "Redial due first" },
 ] as const;
 
@@ -63,6 +64,7 @@ export default async function LeadsPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <SyncButton compact />
           {role === "MANAGER" ? (
             <Link href="/leads/import" prefetch className="rounded-lg ring-1 ring-slate-300 text-slate-700 text-sm font-medium px-3 py-2 hover:bg-slate-50 transition">
               Import CSV
@@ -129,7 +131,7 @@ export default async function LeadsPage({
         ) : (
           <div className="hidden md:block" />
         )}
-        <select name="sort" defaultValue={filters.sort ?? "newest"} className="rounded-lg border border-slate-300 px-2 py-2">
+        <select name="sort" defaultValue={filters.sort ?? "uncontacted"} className="rounded-lg border border-slate-300 px-2 py-2">
           {SORTS.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}
         </select>
         <div className="col-span-2 md:col-span-6 flex gap-2 justify-end">
