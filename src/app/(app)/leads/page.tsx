@@ -4,16 +4,15 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { listLeadsForUser, listActiveSalespeople, type LeadFilters } from "@/lib/leads/queries";
 import { assignAllUnassigned, bulkReassignByLabel, reassignFromUser } from "@/lib/leads/actions";
-import { AutoLabelChip, ManualLabelChip, AUTO_LABEL_TEXT } from "@/components/Labels";
+import { AutoLabelChip, ManualLabelChip, AUTO_LABEL_TEXT, MANUAL_LABELS, MANUAL_LABEL_TEXT } from "@/components/Labels";
 import { ManagerAssignBar } from "@/components/ManagerAssignBar";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { CallButton } from "@/components/CallButton";
 import { SyncButton } from "@/components/SyncButton";
-import type { AutoLabel, LeadSource, ManualLabel } from "@/generated/prisma/enums";
+import type { AutoLabel, LeadSource } from "@/generated/prisma/enums";
 
 const SOURCES: LeadSource[] = ["META", "SHEET", "MANUAL"];
 const AUTO_LABELS: AutoLabel[] = ["NONE", "NOT_PICKED", "CONNECTED", "REDIAL"];
-const MANUAL_LABELS: ManualLabel[] = ["DISPATCH", "BOOKED", "ORDERED", "PAID"];
 const SORTS = [
   { v: "uncontacted", label: "To-call first (called at bottom)" },
   { v: "newest", label: "Newest first" },
@@ -64,7 +63,7 @@ export default async function LeadsPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <SyncButton compact />
+          {role === "MANAGER" ? <SyncButton compact /> : null}
           {role === "MANAGER" ? (
             <Link href="/leads/import" prefetch className="rounded-lg ring-1 ring-slate-300 text-slate-700 text-sm font-medium px-3 py-2 hover:bg-slate-50 transition">
               Import CSV
@@ -121,7 +120,7 @@ export default async function LeadsPage({
         </select>
         <select name="manualLabel" defaultValue={filters.manualLabel ?? ""} className="rounded-lg border border-slate-300 px-2 py-2">
           <option value="">All labels</option>
-          {MANUAL_LABELS.map((s) => <option key={s} value={s}>{s}</option>)}
+          {MANUAL_LABELS.map((s) => <option key={s} value={s}>{MANUAL_LABEL_TEXT[s]}</option>)}
         </select>
         {role === "MANAGER" ? (
           <select name="assignee" defaultValue={filters.assignedToUserId ?? ""} className="rounded-lg border border-slate-300 px-2 py-2">

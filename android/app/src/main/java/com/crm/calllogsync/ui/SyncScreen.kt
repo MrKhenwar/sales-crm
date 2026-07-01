@@ -160,8 +160,28 @@ fun SyncScreen(prefs: Prefs, onSaved: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    enabled = prefs.isConfigured && calllogGranted,
-                    onClick = {
+                    // Always tappable — if something's missing we tell the user exactly
+                    // what to fix instead of silently doing nothing.
+                    onClick = onClick@{
+                        // Re-check the permission live in case it was granted from Settings.
+                        val granted = hasPerm(context, Manifest.permission.READ_CALL_LOG)
+                        calllogGranted = granted
+                        if (prefs.serverUrl.isBlank() || prefs.token.isBlank()) {
+                            status = "Enter your Server URL and API token above, then tap Save first."
+                            return@onClick
+                        }
+                        if (!granted) {
+                            status = "Call-log permission is needed. Tap “Grant permissions” above and allow it."
+                            val perms = mutableListOf(
+                                Manifest.permission.READ_CALL_LOG,
+                                Manifest.permission.READ_PHONE_STATE,
+                            )
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                perms += Manifest.permission.POST_NOTIFICATIONS
+                            }
+                            launcher.launch(perms.toTypedArray())
+                            return@onClick
+                        }
                         scope.launch {
                             status = "Syncing…"
                             try {
@@ -187,8 +207,13 @@ fun SyncScreen(prefs: Prefs, onSaved: () -> Unit) {
                                     if (calls.size < 200) break
                                 }
                                 api.close()
-                                status = if (totalSent == 0) "No new calls in the log."
-                                else "Synced $totalSent calls in $batchNum batches. Created: $created, updated: $updated, skipped: $skipped."
+                                status = when {
+                                    totalSent == 0 -> "No new calls in the log since $since. Use “Reset → today” to re-pull today's calls."
+                                    created == 0 && updated == 0 ->
+                                        "Read $totalSent call(s), but none matched a lead assigned to you, so nothing was added. " +
+                                            "Only calls to/from your assigned leads sync."
+                                    else -> "Synced $totalSent call(s): $created added, $updated updated, $skipped skipped (not your leads)."
+                                }
                             } catch (t: Throwable) {
                                 status = "Crash: ${t.javaClass.simpleName}: ${t.message}"
                             }

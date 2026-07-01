@@ -43,9 +43,9 @@ export async function updateSettingsAction(formData: FormData): Promise<void> {
  */
 export async function runSheetSyncNow(): Promise<SheetSyncResult> {
   const session = await auth();
-  // Any signed-in user (managers + salespeople) can pull the latest sheet data
-  // so the team can refresh call details / new leads instantly.
-  if (!session?.user) {
+  // Pulling from the configured Google Sheets is a manager/ingestion concern.
+  // Salespeople sync their *call logs* from the Android app instead.
+  if (!session?.user || session.user.role !== "MANAGER") {
     return { ok: false, reason: "forbidden", total: 0, created: 0, duplicates: 0, labeled: 0, notes: 0, skipped: 0 };
   }
   let r: SheetSyncResult;
