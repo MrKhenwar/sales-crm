@@ -33,12 +33,13 @@ export default async function LeadsPage({
   const role = session.user.role;
   const sp = await searchParams;
 
+  const str = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? v : undefined);
   const filters: LeadFilters = {
-    q: typeof sp.q === "string" ? sp.q : undefined,
+    q: str(sp.q),
     source: asEnum(sp.source, SOURCES),
     autoLabel: asEnum(sp.autoLabel, AUTO_LABELS),
     manualLabel: asEnum(sp.manualLabel, MANUAL_LABELS),
-    assignedToUserId: typeof sp.assignee === "string" ? sp.assignee : undefined,
+    assignedToUserId: str(sp.assignee),
     sort: asEnum(sp.sort, ["newest", "uncontacted", "redial_due"] as const),
   };
 

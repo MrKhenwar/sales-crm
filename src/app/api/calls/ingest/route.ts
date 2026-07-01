@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { verifyApiToken } from "@/lib/tokens";
@@ -159,8 +159,13 @@ export async function POST(req: NextRequest) {
   // where in-process schedulers don't run) to check if this salesperson has
   // gone quiet for too long and alert them + managers.
   try { await runIdleAgentCheck({ userId: user.id }); } catch { /* non-fatal */ }
-  // Keep the Google Sheet in sync without a cron (throttled internally).
-  try { await maybeAutoSyncSheet(); } catch { /* non-fatal */ }
+
+  // Keep the Google Sheet(s) in sync without a cron (throttled internally).
+  // Run it AFTER the response is sent so pulling several sheets can never delay
+  // or time out (504) the phone's call-sync — which must always return fast.
+  after(async () => {
+    try { await maybeAutoSyncSheet(); } catch { /* non-fatal */ }
+  });
 
   return NextResponse.json({ ok: true, created, updated, skipped, results });
 }

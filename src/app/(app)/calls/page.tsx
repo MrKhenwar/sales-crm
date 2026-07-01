@@ -11,6 +11,18 @@ function asEnum<T extends string>(v: unknown, allowed: readonly T[]): T | undefi
   return typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : undefined;
 }
 
+/**
+ * Parse a date from a query param, returning undefined for empty/invalid input.
+ * An empty <input type="date"> submits `from=`/`to=`, and `new Date("")` is an
+ * *Invalid Date* — which is truthy and, if handed to Prisma, throws a
+ * PrismaClientValidationError (500). So we must validate before using it.
+ */
+function asDate(v: unknown, endOfDay = false): Date | undefined {
+  if (typeof v !== "string" || v.trim() === "") return undefined;
+  const d = new Date(endOfDay ? `${v}T23:59:59` : v);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
 export default async function CallsPage({
   searchParams,
 }: {
@@ -23,11 +35,11 @@ export default async function CallsPage({
   const tab = sp.tab === "by-number" ? "by-number" : "log";
 
   const filters: CallLogFilters = {
-    q: typeof sp.q === "string" ? sp.q : undefined,
+    q: typeof sp.q === "string" && sp.q.trim() !== "" ? sp.q : undefined,
     outcome: asEnum(sp.outcome, OUTCOMES),
-    agentUserId: typeof sp.agent === "string" ? sp.agent : undefined,
-    from: typeof sp.from === "string" ? new Date(sp.from) : undefined,
-    to: typeof sp.to === "string" ? new Date(sp.to + "T23:59:59") : undefined,
+    agentUserId: typeof sp.agent === "string" && sp.agent.trim() !== "" ? sp.agent : undefined,
+    from: asDate(sp.from),
+    to: asDate(sp.to, true),
   };
 
   const [salespeople, log, byPhone] = await Promise.all([
