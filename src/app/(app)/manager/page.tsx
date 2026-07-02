@@ -12,14 +12,21 @@ import {
   startOfWeek,
 } from "@/lib/calls/queries";
 import { leadFunnel } from "@/lib/leads/queries";
+import { isManagerOrAdmin, visibleUserIds } from "@/lib/scope";
 import { ActiveCalls } from "@/components/ActiveCalls";
 
 export default async function ManagerHome() {
   const session = await auth();
-  if (session?.user.role !== "MANAGER") redirect("/");
+  if (!session?.user || !isManagerOrAdmin(session.user.role)) redirect("/");
+  const isAdmin = session.user.role === "ADMIN";
 
   const todayStart = startOfTodayUTC();
   const weekStart = startOfWeek();
+
+  // Scope every dashboard aggregate to the viewer's team. Admin (null) sees all.
+  const visibleIds = await visibleUserIds(session.user);
+  const teamUserFilter = visibleIds ? { id: { in: visibleIds } } : {};
+  const leadScope = visibleIds ? { assignedToUserId: { in: visibleIds } } : {};
 
   const [
     totalUsers,
@@ -33,16 +40,16 @@ export default async function ManagerHome() {
     talkToday,
     talkWeek,
   ] = await Promise.all([
-    prisma.user.count(),
-    prisma.user.count({ where: { role: "SALESPERSON", active: true } }),
-    leadFunnel(),
-    prisma.lead.groupBy({ by: ["source"], _count: { _all: true } }),
+    prisma.user.count({ where: teamUserFilter }),
+    prisma.user.count({ where: { role: "SALESPERSON", active: true, ...(visibleIds ? { managerId: session.user.id } : {}) } }),
+    leadFunnel(visibleIds),
+    prisma.lead.groupBy({ by: ["source"], where: leadScope, _count: { _all: true } }),
     getAutoAssignMode(),
-    listActiveCalls({ userId: session.user.id, role: "MANAGER" }),
-    teamCallStats({ since: todayStart }),
-    teamCallStats({ since: weekStart }),
-    talkTimeBySalesperson({ since: todayStart }),
-    talkTimeBySalesperson({ since: weekStart }),
+    listActiveCalls({ userId: session.user.id, role: session.user.role }),
+    teamCallStats({ since: todayStart, visibleIds }),
+    teamCallStats({ since: weekStart, visibleIds }),
+    talkTimeBySalesperson({ since: todayStart, visibleIds }),
+    talkTimeBySalesperson({ since: weekStart, visibleIds }),
   ]);
 
   const initialActive = activeCalls.map((c) => ({
@@ -85,21 +92,33 @@ export default async function ManagerHome() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Manager dashboard</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">{isAdmin ? "Admin dashboard" : "Manager dashboard"}</h1>
           <p className="text-slate-500 mt-1 text-sm">
-            Live calls, picked vs not-picked, talk time per salesperson, and lead funnel.
+            {isAdmin
+              ? "Live calls, picked vs not-picked, talk time, and lead funnel across every team."
+              : "Live calls, picked vs not-picked, talk time per salesperson, and lead funnel for your team."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href="/manager/users" prefetch className="rounded-lg ring-1 ring-slate-300 text-slate-700 text-sm font-medium px-3 py-2 hover:bg-slate-50">
-            Users
-          </Link>
-          <Link href="/leads/import" prefetch className="rounded-lg ring-1 ring-slate-300 text-slate-700 text-sm font-medium px-3 py-2 hover:bg-slate-50">
-            Import CSV
-          </Link>
-          <Link href="/manager/settings" prefetch className="rounded-lg bg-slate-900 text-white text-sm font-medium px-3 py-2 hover:bg-slate-800">
-            Ingestion
-          </Link>
+          {isAdmin ? (
+            <Link href="/manager/users" prefetch className="rounded-lg ring-1 ring-slate-300 text-slate-700 text-sm font-medium px-3 py-2 hover:bg-slate-50">
+              Users
+            </Link>
+          ) : (
+            <Link href="/manager/team" prefetch className="rounded-lg ring-1 ring-slate-300 text-slate-700 text-sm font-medium px-3 py-2 hover:bg-slate-50">
+              My team
+            </Link>
+          )}
+          {isAdmin ? (
+            <>
+              <Link href="/leads/import" prefetch className="rounded-lg ring-1 ring-slate-300 text-slate-700 text-sm font-medium px-3 py-2 hover:bg-slate-50">
+                Import CSV
+              </Link>
+              <Link href="/manager/settings" prefetch className="rounded-lg bg-slate-900 text-white text-sm font-medium px-3 py-2 hover:bg-slate-800">
+                Ingestion
+              </Link>
+            </>
+          ) : null}
         </div>
       </div>
 

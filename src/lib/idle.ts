@@ -16,15 +16,16 @@ export async function runIdleAgentCheck(opts: { userId?: string } = {}): Promise
 
   const salespeople = await prisma.user.findMany({
     where: { role: "SALESPERSON", active: true, ...(opts.userId ? { id: opts.userId } : {}) },
-    select: { id: true, name: true },
+    select: { id: true, name: true, managerId: true },
   });
   if (salespeople.length === 0) return { idle: 0, notified: 0 };
 
-  const managers = await prisma.user.findMany({
-    where: { role: "MANAGER", active: true },
+  // Every active admin sees the whole org, so they get every idle alert.
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", active: true },
     select: { id: true },
   });
-  const managerIds = managers.map((m) => m.id);
+  const adminIds = admins.map((a) => a.id);
 
   let idle = 0;
   let notified = 0;
@@ -64,9 +65,13 @@ export async function runIdleAgentCheck(opts: { userId?: string } = {}): Promise
       data: { userId: sp.id, type: "REDIAL_DUE", leadId: null, message: spMsg },
     });
     notified++;
-    for (const mid of managerIds) {
+    // Only this salesperson's own manager (if any) + all admins are alerted —
+    // other managers can't see this salesperson.
+    const recipientIds = new Set<string>(adminIds);
+    if (sp.managerId) recipientIds.add(sp.managerId);
+    for (const rid of recipientIds) {
       await prisma.notification.create({
-        data: { userId: mid, type: "REDIAL_DUE", leadId: null, message: mgrMsg },
+        data: { userId: rid, type: "REDIAL_DUE", leadId: null, message: mgrMsg },
       });
       notified++;
     }

@@ -12,6 +12,7 @@ datasource db {
 enum Role {
   SALESPERSON
   MANAGER
+  ADMIN
 }
 
 enum LeadSource {
@@ -82,6 +83,12 @@ model User {
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
+  // Team hierarchy: a salesperson belongs to exactly one manager. Managers/admins
+  // have managerId = null. onDelete: SetNull so removing a manager frees their team.
+  managerId String?
+  manager   User?   @relation("ManagerTeam", fields: [managerId], references: [id], onDelete: SetNull)
+  team      User[]  @relation("ManagerTeam")
+
   assignedLeads    Lead[]              @relation("AssignedLeads")
   calls            Call[]
   callSessions     CallSession[]
@@ -93,6 +100,7 @@ model User {
   leadNotes        LeadNote[]
 
   @@index([role, active])
+  @@index([managerId])
 }
 
 model Lead {
@@ -235,6 +243,14 @@ model Setting {
 // Round-robin cursor — tracks the index of the next salesperson to receive a lead.
 model AssignmentCursor {
   id        Int      @id @default(1)
+  cursor    Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+// Per-key round-robin cursor for two-level (per-team) lead distribution.
+// key = "__TEAMS__" rotates across teams; key = a managerId rotates within that team.
+model RoundRobinCursor {
+  key       String   @id
   cursor    Int      @default(0)
   updatedAt DateTime @updatedAt
 }

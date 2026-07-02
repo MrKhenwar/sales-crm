@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { visibleUserIds } from "@/lib/scope";
 
 /** Salesperson queue: uncontacted leads first, then redial-due. */
 export async function nextLeadInQueue(userId: string) {
@@ -107,8 +108,14 @@ export async function listCallLogs(opts: {
 }) {
   const { userId, role, filters, take = 100, skip = 0 } = opts;
   const where: import("@/generated/prisma/client").Prisma.CallWhereInput = {};
-  if (role !== "MANAGER") {
-    where.userId = userId;
+  // Scope to the viewer's team. ADMIN (null) sees all calls.
+  const visibleIds = await visibleUserIds({ id: userId, role });
+  if (visibleIds) {
+    if (filters.agentUserId && visibleIds.includes(filters.agentUserId)) {
+      where.userId = filters.agentUserId;
+    } else {
+      where.userId = { in: visibleIds };
+    }
   } else if (filters.agentUserId) {
     where.userId = filters.agentUserId;
   }
@@ -161,7 +168,8 @@ export async function listCallsByPhone(opts: {
 }) {
   const { userId, role, q, take = 50 } = opts;
   const where: import("@/generated/prisma/client").Prisma.LeadWhereInput = {};
-  if (role !== "MANAGER") where.assignedToUserId = userId;
+  const visibleIds = await visibleUserIds({ id: userId, role });
+  if (visibleIds) where.assignedToUserId = { in: visibleIds };
   if (q) {
     const v = q.trim();
     where.OR = [
@@ -256,7 +264,8 @@ export async function listActiveCalls(opts: { userId: string; role: Role }) {
     outcome: "PENDING",
     startedAt: { gte: new Date(Date.now() - 60 * 60_000) }, // last hour only
   };
-  if (opts.role !== "MANAGER") where.userId = opts.userId;
+  const visibleIds = await visibleUserIds({ id: opts.userId, role: opts.role });
+  if (visibleIds) where.userId = { in: visibleIds };
   return prisma.call.findMany({
     where,
     orderBy: { startedAt: "asc" },
@@ -267,10 +276,14 @@ export async function listActiveCalls(opts: { userId: string; role: Role }) {
   });
 }
 
-/** Aggregated talk time per salesperson over a window (today / week / all). */
-export async function talkTimeBySalesperson(opts: { since?: Date }) {
+/**
+ * Aggregated talk time per salesperson over a window (today / week / all).
+ * Pass `visibleIds` to limit to a manager's team; omit/null for the whole org.
+ */
+export async function talkTimeBySalesperson(opts: { since?: Date; visibleIds?: string[] | null }) {
   const where: import("@/generated/prisma/client").Prisma.CallWhereInput = {};
   if (opts.since) where.startedAt = { gte: opts.since };
+  if (opts.visibleIds) where.userId = { in: opts.visibleIds };
   const rows = await prisma.call.groupBy({
     by: ["userId"],
     where,
@@ -301,10 +314,14 @@ export async function talkTimeBySalesperson(opts: { since?: Date }) {
     .sort((a, b) => b.totalDurationSec - a.totalDurationSec);
 }
 
-/** Team-wide call totals over a window: picked (connected) vs not picked + talk time. */
-export async function teamCallStats(opts: { since?: Date }) {
+/**
+ * Team-wide call totals over a window: picked (connected) vs not picked + talk time.
+ * Pass `visibleIds` to limit to a manager's team; omit/null for the whole org.
+ */
+export async function teamCallStats(opts: { since?: Date; visibleIds?: string[] | null }) {
   const where: import("@/generated/prisma/client").Prisma.CallWhereInput = {};
   if (opts.since) where.startedAt = { gte: opts.since };
+  if (opts.visibleIds) where.userId = { in: opts.visibleIds };
   const [agg, connected, notPicked] = await Promise.all([
     prisma.call.aggregate({ where, _count: { _all: true }, _sum: { durationSec: true }, _avg: { durationSec: true } }),
     prisma.call.count({ where: { ...where, outcome: "CONNECTED" } }),

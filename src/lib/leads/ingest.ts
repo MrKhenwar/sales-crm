@@ -33,26 +33,50 @@ function normalizePhone(raw: string): string | null {
   return phoneRegex.test(p) ? p : null;
 }
 
+/** Atomically bump a named round-robin cursor and return its new value. */
+async function bumpCursor(key: string): Promise<number> {
+  const row = await prisma.roundRobinCursor.upsert({
+    where: { key },
+    update: { cursor: { increment: 1 } },
+    create: { key, cursor: 1 },
+  });
+  return row.cursor;
+}
+
 /**
- * Pick the next salesperson for round-robin. Cursor-based, stable across calls.
- * Falls back to null if no active salespeople.
+ * Per-team round-robin. New leads rotate across teams (managers who own at least
+ * one active salesperson), and within the chosen team rotate across that team's
+ * active salespeople. Salespeople with no manager are excluded — a lead assigned
+ * to them would be invisible to every manager. Returns null when no eligible
+ * team/salesperson exists (the lead stays in the admin-only unassigned pool).
  */
 async function pickRoundRobinAssignee(): Promise<string | null> {
+  // Active salespeople who belong to a manager, grouped into teams.
   const salespeople = await prisma.user.findMany({
-    where: { role: "SALESPERSON", active: true },
-    select: { id: true },
+    where: { role: "SALESPERSON", active: true, managerId: { not: null } },
+    select: { id: true, managerId: true },
     orderBy: { createdAt: "asc" },
   });
   if (salespeople.length === 0) return null;
 
-  // Atomically bump the cursor and select.
-  const cursor = await prisma.assignmentCursor.upsert({
-    where: { id: 1 },
-    update: { cursor: { increment: 1 } },
-    create: { id: 1, cursor: 1 },
-  });
-  const idx = (cursor.cursor - 1) % salespeople.length;
-  return salespeople[idx].id;
+  // Group by managerId, preserving a stable (createdAt) order within each team.
+  const teams = new Map<string, string[]>();
+  for (const sp of salespeople) {
+    const mid = sp.managerId as string;
+    const list = teams.get(mid) ?? [];
+    list.push(sp.id);
+    teams.set(mid, list);
+  }
+  const teamIds = Array.from(teams.keys()).sort(); // stable ordering across calls
+
+  // Level 1: pick the next team.
+  const teamCursor = await bumpCursor("__TEAMS__");
+  const managerId = teamIds[(teamCursor - 1) % teamIds.length];
+
+  // Level 2: pick the next salesperson within that team.
+  const members = teams.get(managerId)!;
+  const memberCursor = await bumpCursor(managerId);
+  return members[(memberCursor - 1) % members.length];
 }
 
 export async function ingestLead(input: IngestInput): Promise<IngestResult> {

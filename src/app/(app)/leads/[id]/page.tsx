@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { getLeadById, listActiveSalespeople } from "@/lib/leads/queries";
+import { getLeadById } from "@/lib/leads/queries";
+import { isManagerOrAdmin, listAssignableSalespeople } from "@/lib/scope";
 import { applyManualLabel, removeManualLabel, updateLead, assignLead, deleteLead, addLeadNote } from "@/lib/leads/actions";
 import { submitCallFeedback } from "@/lib/calls/actions";
 import { AutoLabelChip, ManualLabelChip, MANUAL_LABELS } from "@/components/Labels";
@@ -29,8 +30,9 @@ export default async function LeadDetailPage({
   if (!lead) notFound();
 
   const role = session.user.role;
-  const isManager = role === "MANAGER";
-  const salespeople = isManager ? await listActiveSalespeople() : [];
+  // Managers and admin see the reassign/manage controls; scoped to their team.
+  const isManager = isManagerOrAdmin(role);
+  const salespeople = isManager ? await listAssignableSalespeople(session.user) : [];
 
   // A call was just started for this lead — show the outcome-logging panel so the
   // salesperson can record how it went (this replaces the old dialer page).

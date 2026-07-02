@@ -6,6 +6,7 @@ import { phoneTail } from "@/lib/phone";
 import { applyCallStatusUpdate } from "@/lib/calls/handlers";
 import { runIdleAgentCheck } from "@/lib/idle";
 import { maybeAutoSyncSheet } from "@/lib/integrations/sheet-sync";
+import { visibleUserIds } from "@/lib/scope";
 
 export const runtime = "nodejs";
 
@@ -62,10 +63,11 @@ export async function POST(req: NextRequest) {
   const tails = Array.from(new Set(parsed.calls.map((c) => phoneTail(c.phone)).filter(Boolean)));
   if (tails.length === 0) return NextResponse.json({ ok: true, created: 0, skipped: parsed.calls.length });
 
+  // Match only against leads the token holder may see: their own (salesperson),
+  // their team's (manager), or all (admin).
+  const visibleIds = await visibleUserIds({ id: user.id, role: user.role });
   const leads = await prisma.lead.findMany({
-    where: user.role === "MANAGER"
-      ? {}
-      : { assignedToUserId: user.id },
+    where: visibleIds ? { assignedToUserId: { in: visibleIds } } : {},
     select: { id: true, phone: true, name: true },
   });
   const byTail = new Map<string, { id: string; phone: string }>();

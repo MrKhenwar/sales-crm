@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { AppNav } from "@/components/AppNav";
+import { AppDrawer } from "@/components/AppDrawer";
 
 async function logoutAction() {
   "use server";
@@ -30,9 +31,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="min-h-screen flex flex-col">
       <header className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b border-slate-200">
         <div className="mx-auto max-w-6xl flex items-center justify-between px-4 h-14">
-          <Link href="/" prefetch className="font-semibold tracking-tight">
-            Sales CRM
-          </Link>
+          <div className="flex items-center gap-3">
+            <AppDrawer
+              role={role}
+              userName={session.user.name ?? "Account"}
+              userEmail={session.user.email ?? ""}
+              unread={unread}
+              signOutAction={logoutAction}
+            />
+            <Link href="/" prefetch className="font-semibold tracking-tight">
+              Sales CRM
+            </Link>
+          </div>
           <AppNav
             role={role}
             userName={session.user.name ?? "Account"}

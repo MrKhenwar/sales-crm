@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type Role = "MANAGER" | "SALESPERSON";
+type Role = "ADMIN" | "MANAGER" | "SALESPERSON";
 
 type Props = {
   role: Role;
@@ -39,7 +39,16 @@ export function AppNav({ role, userName, unread, signOutAction }: Props) {
     { href: "/leads", label: "Leads", icon: <Icon path={ICONS.leads} /> },
     { href: "/calls", label: "Calls", icon: <Icon path={ICONS.calls} /> },
     ...(role === "MANAGER"
-      ? [{ href: "/manager", label: "Manager", icon: <Icon path={ICONS.manager} /> }]
+      ? [
+          { href: "/manager", label: "Manager", icon: <Icon path={ICONS.manager} /> },
+          { href: "/manager/team", label: "Team", icon: <Icon path={ICONS.profile} /> },
+        ]
+      : []),
+    ...(role === "ADMIN"
+      ? [
+          { href: "/manager", label: "Admin", icon: <Icon path={ICONS.manager} /> },
+          { href: "/manager/users", label: "Users", icon: <Icon path={ICONS.profile} /> },
+        ]
       : []),
     { href: "/notifications", label: "Inbox", icon: <Icon path={ICONS.inbox} /> },
   ];

@@ -3,13 +3,16 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../src/lib/prisma";
 
 /**
- * Bootstrap the CRM with ONE manager + ONE salesperson.
+ * Bootstrap the CRM with ONE admin (the head) + ONE salesperson.
  * No sample leads — production starts empty.
  *
  * Credentials come from env (set on Vercel before running).
  * Falls back to safe placeholders so a fresh local install still works.
+ *
+ * The admin is the org head: they create managers, and managers pick which
+ * salespeople they handle. A brand-new salesperson has no manager until picked.
  */
-const manager = {
+const admin = {
   name: process.env.INITIAL_MANAGER_NAME || "Admin",
   email: (process.env.INITIAL_MANAGER_EMAIL || "admin@yourcrm.app").toLowerCase(),
   password: process.env.INITIAL_MANAGER_PASSWORD || "Admin@12345",
@@ -24,15 +27,15 @@ const salesperson = {
 };
 
 async function main() {
-  const managerHash = await bcrypt.hash(manager.password, 10);
+  const adminHash = await bcrypt.hash(admin.password, 10);
   const salesHash = await bcrypt.hash(salesperson.password, 10);
 
   await prisma.user.upsert({
-    where: { email: manager.email },
-    update: { name: manager.name, role: "MANAGER", phone: manager.phone, active: true, passwordHash: managerHash },
+    where: { email: admin.email },
+    update: { name: admin.name, role: "ADMIN", phone: admin.phone, active: true, passwordHash: adminHash },
     create: {
-      name: manager.name, email: manager.email, role: "MANAGER",
-      phone: manager.phone, active: true, passwordHash: managerHash,
+      name: admin.name, email: admin.email, role: "ADMIN",
+      phone: admin.phone, active: true, passwordHash: adminHash,
     },
   });
 
@@ -50,11 +53,11 @@ async function main() {
   console.log("Seed complete.");
   console.log(`  Users: ${total}  Leads: ${leads}`);
   console.log("  ----------------------------------------------------------");
-  console.log(`  MANAGER     ${manager.email}    password: ${manager.password}`);
+  console.log(`  ADMIN       ${admin.email}    password: ${admin.password}`);
   console.log(`  SALESPERSON ${salesperson.email}  password: ${salesperson.password}`);
   console.log("  ----------------------------------------------------------");
-  console.log("  CHANGE THESE PASSWORDS after first sign-in. The Manager can add");
-  console.log("  more salespeople via SQL until the user-management UI ships.");
+  console.log("  CHANGE THESE PASSWORDS after first sign-in. The Admin creates");
+  console.log("  managers under Users; each manager then picks their salespeople.");
 }
 
 main()

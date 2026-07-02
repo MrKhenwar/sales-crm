@@ -10,7 +10,7 @@ export default async function ImportPage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  if (session.user.role !== "MANAGER") redirect("/");
+  if (session.user.role !== "ADMIN") redirect("/");
   const sp = await searchParams;
 
   return (

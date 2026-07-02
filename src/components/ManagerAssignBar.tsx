@@ -16,12 +16,15 @@ const MANUAL_OPTIONS: ManualLabel[] = [
 export function ManagerAssignBar({
   salespeople,
   unassignedCount,
+  isAdmin,
   assignAllAction,
   reassignByLabelAction,
   reassignFromUserAction,
 }: {
   salespeople: Person[];
   unassignedCount: number;
+  // The unassigned pool belongs to no team, so only the admin can distribute it.
+  isAdmin: boolean;
   assignAllAction: () => void | Promise<void>;
   reassignByLabelAction: (formData: FormData) => void | Promise<void>;
   reassignFromUserAction: (formData: FormData) => void | Promise<void>;
@@ -35,22 +38,26 @@ export function ManagerAssignBar({
         <div>
           <h2 className="font-medium">Distribute leads</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            {unassignedCount > 0
-              ? `${unassignedCount} unassigned lead${unassignedCount === 1 ? "" : "s"} waiting.`
-              : "All leads are assigned."}{" "}
+            {isAdmin
+              ? unassignedCount > 0
+                ? `${unassignedCount} unassigned lead${unassignedCount === 1 ? "" : "s"} waiting. `
+                : "All leads are assigned. "
+              : ""}
             Split fairly across the team or hand labeled leads to someone else.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <form action={() => startTransition(() => assignAllAction())}>
-            <button
-              type="submit"
-              disabled={pending || unassignedCount === 0}
-              className="rounded-lg bg-slate-900 text-white text-sm font-medium px-3 py-2 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {pending ? "Working…" : `Assign all unassigned (${unassignedCount})`}
-            </button>
-          </form>
+          {isAdmin ? (
+            <form action={() => startTransition(() => assignAllAction())}>
+              <button
+                type="submit"
+                disabled={pending || unassignedCount === 0}
+                className="rounded-lg bg-slate-900 text-white text-sm font-medium px-3 py-2 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {pending ? "Working…" : `Assign all unassigned (${unassignedCount})`}
+              </button>
+            </form>
+          ) : null}
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}

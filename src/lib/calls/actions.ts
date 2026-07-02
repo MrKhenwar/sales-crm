@@ -7,6 +7,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getTelephonyProvider } from "@/lib/telephony";
 import { applyCallStatusUpdate } from "@/lib/calls/handlers";
+import { visibleUserIds } from "@/lib/scope";
 import type { CallOutcome, ManualLabel } from "@/generated/prisma/enums";
 
 async function requireUser() {
@@ -37,7 +38,11 @@ export async function startCallForLead(formData: FormData): Promise<void> {
     prisma.callSession.findFirst({ where: { userId: user.id, endedAt: null } }),
   ]);
   if (!lead) redirect("/leads");
-  if (user.role !== "MANAGER" && lead.assignedToUserId !== user.id) redirect("/leads");
+  // Salesperson: only their own leads. Manager: only their team's. Admin: any.
+  const visibleForStart = await visibleUserIds(user);
+  if (visibleForStart && (lead.assignedToUserId === null || !visibleForStart.includes(lead.assignedToUserId))) {
+    redirect("/leads");
+  }
 
   const agentPhone = me?.phone;
   if (!agentPhone) {
@@ -123,7 +128,9 @@ export async function submitCallFeedback(formData: FormData): Promise<void> {
     select: { id: true, leadId: true, userId: true, startedAt: true },
   });
   if (!call) redirect("/leads");
-  if (call.userId !== user.id && user.role !== "MANAGER") redirect("/leads");
+  // The caller can log their own call; managers/admin can within their scope.
+  const visibleForFeedback = await visibleUserIds(user);
+  if (visibleForFeedback && !visibleForFeedback.includes(call.userId)) redirect("/leads");
 
   // If the salesperson is logging a manual outcome (direct mode), apply call-status
   // side effects (Lead.autoLabel, lastContactedAt, nextRedialAt) once, here.

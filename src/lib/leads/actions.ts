@@ -6,7 +6,8 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import type { AutoLabel, ManualLabel } from "@/generated/prisma/enums";
+import type { AutoLabel, ManualLabel, Role } from "@/generated/prisma/enums";
+import { visibleUserIds, canAssignTo } from "@/lib/scope";
 
 async function requireSession() {
   const session = await auth();
@@ -39,14 +40,23 @@ const updateSchema = z.object({
   campaignName: z.string().trim().max(120).optional().or(z.literal("")).transform((v) => (v === "" ? null : v)),
 });
 
-async function leadVisibleToUser(leadId: string, userId: string, role: string) {
+async function leadVisibleToUser(leadId: string, userId: string, role: Role) {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
     select: { id: true, assignedToUserId: true },
   });
   if (!lead) return null;
-  if (role !== "MANAGER" && lead.assignedToUserId !== userId) return null;
+  const visibleIds = await visibleUserIds({ id: userId, role });
+  // ADMIN (null) sees any lead; others only leads assigned within their scope.
+  if (visibleIds && (lead.assignedToUserId === null || !visibleIds.includes(lead.assignedToUserId))) {
+    return null;
+  }
   return lead;
+}
+
+/** Managers/admins may reassign & delete; salespeople may not. */
+function canManageLeads(role: Role): boolean {
+  return role === "MANAGER" || role === "ADMIN";
 }
 
 function errParam(msg: string) {
@@ -66,8 +76,16 @@ export async function createLead(formData: FormData): Promise<void> {
   const parsed = createSchema.safeParse(raw);
   if (!parsed.success) redirect(`/leads/new?${errParam(parsed.error.issues[0]?.message ?? "Invalid input")}`);
 
-  const assignedToUserId =
-    user.role === "MANAGER" ? parsed.data.assignedToUserId ?? null : user.id;
+  let assignedToUserId: string | null;
+  if (canManageLeads(user.role)) {
+    assignedToUserId = parsed.data.assignedToUserId ?? null;
+    // A manager may only assign to their own team; admin to anyone active.
+    if (assignedToUserId && !(await canAssignTo(user, assignedToUserId))) {
+      redirect(`/leads/new?${errParam("You can only assign to your own salespeople")}`);
+    }
+  } else {
+    assignedToUserId = user.id;
+  }
 
   const existing = await prisma.lead.findUnique({ where: { phone: parsed.data.phone }, select: { id: true } });
   if (existing) redirect(`/leads/new?${errParam("A lead with this phone already exists")}`);
@@ -129,16 +147,18 @@ export async function updateLead(formData: FormData): Promise<void> {
 export async function assignLead(formData: FormData): Promise<void> {
   const user = await requireSession();
   const leadId = String(formData.get("leadId") ?? "");
-  if (user.role !== "MANAGER") redirect(`/leads/${leadId}?${errParam("Only managers can reassign")}`);
+  if (!canManageLeads(user.role)) redirect(`/leads/${leadId}?${errParam("Only managers can reassign")}`);
 
   const toUserId = String(formData.get("toUserId") ?? "");
   const reason = String(formData.get("reason") ?? "") || null;
   if (!leadId || !toUserId) redirect(`/leads/${leadId}?${errParam("Missing fields")}`);
 
-  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { assignedToUserId: true } });
+  // The lead must be within the actor's scope, and the target within their team.
+  const lead = await leadVisibleToUser(leadId, user.id, user.role);
   if (!lead) redirect(`/leads?${errParam("Lead not found")}`);
-  const target = await prisma.user.findUnique({ where: { id: toUserId }, select: { id: true, active: true } });
-  if (!target || !target.active) redirect(`/leads/${leadId}?${errParam("Target user not active")}`);
+  if (!(await canAssignTo(user, toUserId))) {
+    redirect(`/leads/${leadId}?${errParam("You can only assign to your own salespeople")}`);
+  }
 
   if (lead.assignedToUserId === toUserId) {
     revalidatePath(`/leads/${leadId}`);
@@ -189,7 +209,10 @@ export async function removeManualLabel(formData: FormData): Promise<void> {
 export async function deleteLead(formData: FormData): Promise<void> {
   const user = await requireSession();
   const leadId = String(formData.get("leadId") ?? "");
-  if (user.role !== "MANAGER") redirect(`/leads/${leadId}?${errParam("Only managers can delete")}`);
+  if (!canManageLeads(user.role)) redirect(`/leads/${leadId}?${errParam("Only managers can delete")}`);
+  // Managers may only delete leads within their own team; admin any lead.
+  const lead = await leadVisibleToUser(leadId, user.id, user.role);
+  if (!lead) redirect(`/leads?${errParam("Lead not found")}`);
   await prisma.lead.delete({ where: { id: leadId } });
   revalidatePath("/leads");
   redirect("/leads");
@@ -259,10 +282,13 @@ async function distributeLeads(opts: {
   return moves.length;
 }
 
-/** Manager: randomly split every currently-unassigned lead across active salespeople. */
+/**
+ * Admin: randomly split every currently-unassigned lead across active salespeople.
+ * Unassigned leads belong to no team, so only the admin can see and distribute them.
+ */
 export async function assignAllUnassigned(): Promise<void> {
   const user = await requireSession();
-  if (user.role !== "MANAGER") redirect(`/leads?${errParam("Only managers can assign leads")}`);
+  if (user.role !== "ADMIN") redirect(`/leads?${errParam("Only the admin can distribute unassigned leads")}`);
 
   const [salespeople, leads] = await Promise.all([
     prisma.user.findMany({ where: { role: "SALESPERSON", active: true }, select: { id: true } }),
@@ -284,17 +310,20 @@ export async function assignAllUnassigned(): Promise<void> {
  */
 export async function bulkReassignByLabel(formData: FormData): Promise<void> {
   const user = await requireSession();
-  if (user.role !== "MANAGER") redirect(`/leads?${errParam("Only managers can reassign leads")}`);
+  if (!canManageLeads(user.role)) redirect(`/leads?${errParam("Only managers can reassign leads")}`);
 
   const toUserId = String(formData.get("toUserId") ?? "");
   const labelRaw = String(formData.get("label") ?? "");
   const [kind, value] = labelRaw.split(":");
 
   if (!toUserId) redirect(`/leads?${errParam("Pick a salesperson to move leads to")}`);
-  const target = await prisma.user.findUnique({ where: { id: toUserId }, select: { id: true, active: true } });
-  if (!target || !target.active) redirect(`/leads?${errParam("Target salesperson is not active")}`);
+  // Managers may only move to their own team; admin to anyone active.
+  if (!(await canAssignTo(user, toUserId))) redirect(`/leads?${errParam("You can only assign to your own salespeople")}`);
 
   const where: Prisma.LeadWhereInput = {};
+  // Managers only see/move leads already within their team; admin moves any.
+  const visibleIds = await visibleUserIds(user);
+  if (visibleIds) where.assignedToUserId = { in: visibleIds };
   if (kind === "auto" && (AUTO_LABELS as string[]).includes(value)) {
     where.autoLabel = value as AutoLabel;
   } else if (kind === "manual" && (ALL_MANUAL_LABELS as string[]).includes(value)) {
@@ -328,12 +357,18 @@ export async function bulkReassignByLabel(formData: FormData): Promise<void> {
  */
 export async function reassignFromUser(formData: FormData): Promise<void> {
   const user = await requireSession();
-  if (user.role !== "MANAGER") redirect(`/leads?${errParam("Only managers can reassign leads")}`);
+  if (!canManageLeads(user.role)) redirect(`/leads?${errParam("Only managers can reassign leads")}`);
 
   const fromUserId = String(formData.get("fromUserId") ?? "");
   const toUserId = String(formData.get("toUserId") ?? "");
   const onlyUncontacted = String(formData.get("mode") ?? "") === "uncontacted";
   if (!fromUserId) redirect(`/leads?${errParam("Pick the salesperson to move leads from")}`);
+
+  // A manager may only move leads between their own team members; admin anyone.
+  const visibleIds = await visibleUserIds(user);
+  if (visibleIds && !visibleIds.includes(fromUserId)) {
+    redirect(`/leads?${errParam("That salesperson isn't on your team")}`);
+  }
 
   const where: Prisma.LeadWhereInput = { assignedToUserId: fromUserId };
   if (onlyUncontacted) where.lastContactedAt = null;
@@ -343,13 +378,18 @@ export async function reassignFromUser(formData: FormData): Promise<void> {
 
   let salespeople: { id: string }[];
   if (toUserId) {
-    const target = await prisma.user.findUnique({ where: { id: toUserId }, select: { id: true, active: true } });
-    if (!target || !target.active) redirect(`/leads?${errParam("Target salesperson is not active")}`);
+    if (!(await canAssignTo(user, toUserId))) redirect(`/leads?${errParam("You can only assign to your own salespeople")}`);
     salespeople = [{ id: toUserId }];
   } else {
-    // Re-spread across everyone else who's active.
+    // Re-spread across everyone else who's active — within the actor's team for
+    // managers, across the whole org for admin.
     salespeople = await prisma.user.findMany({
-      where: { role: "SALESPERSON", active: true, id: { not: fromUserId } },
+      where: {
+        role: "SALESPERSON",
+        active: true,
+        id: { not: fromUserId },
+        ...(visibleIds ? { managerId: user.id } : {}),
+      },
       select: { id: true },
     });
     if (salespeople.length === 0) redirect(`/leads?${errParam("No other active salespeople to move to")}`);

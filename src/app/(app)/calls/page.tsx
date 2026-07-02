@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { listCallLogs, listCallsByPhone, formatDuration, ringSeconds, outcomeLabel, type CallLogFilters } from "@/lib/calls/queries";
-import { listActiveSalespeople } from "@/lib/leads/queries";
+import { isManagerOrAdmin, listAssignableSalespeople } from "@/lib/scope";
 import type { CallOutcome } from "@/generated/prisma/enums";
 
 const OUTCOMES: CallOutcome[] = ["CONNECTED", "NO_ANSWER", "BUSY", "FAILED", "PENDING"];
@@ -31,6 +31,7 @@ export default async function CallsPage({
   const session = await auth();
   if (!session?.user) redirect("/login");
   const role = session.user.role;
+  const canManage = isManagerOrAdmin(role);
   const sp = await searchParams;
   const tab = sp.tab === "by-number" ? "by-number" : "log";
 
@@ -43,7 +44,7 @@ export default async function CallsPage({
   };
 
   const [salespeople, log, byPhone] = await Promise.all([
-    role === "MANAGER" ? listActiveSalespeople() : Promise.resolve([]),
+    canManage ? listAssignableSalespeople(session.user) : Promise.resolve([]),
     tab === "log"
       ? listCallLogs({ userId: session.user.id, role, filters, take: 200 })
       : Promise.resolve({ items: [], total: 0, totalDurationSec: 0, avgDurationSec: 0 }),
@@ -58,7 +59,7 @@ export default async function CallsPage({
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Call logs</h1>
           <p className="text-slate-500 mt-1 text-sm">
-            {role === "MANAGER" ? "Every call your team has logged in the CRM." : "Every call you've logged in the CRM."}
+            {canManage ? "Every call your team has logged in the CRM." : "Every call you've logged in the CRM."}
           </p>
         </div>
         <div className="flex gap-1 text-sm rounded-lg ring-1 ring-slate-200 bg-white p-1 self-start">
@@ -81,7 +82,7 @@ export default async function CallsPage({
               <option value="">All outcomes</option>
               {OUTCOMES.map((o) => <option key={o} value={o}>{outcomeLabel(o)}</option>)}
             </select>
-            {role === "MANAGER" ? (
+            {canManage ? (
               <select name="agent" defaultValue={filters.agentUserId ?? ""} className="rounded-lg border border-slate-300 px-2 py-2">
                 <option value="">All salespeople</option>
                 {salespeople.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -129,7 +130,7 @@ export default async function CallsPage({
                         {ringSeconds(c) === null && (c.durationSec ?? 0) === 0 ? <span className="font-medium">{formatDuration(0)}</span> : null}
                       </span>
                     </div>
-                    {role === "MANAGER" ? <div className="mt-1 text-xs text-slate-500">Agent: {c.user.name}</div> : null}
+                    {canManage ? <div className="mt-1 text-xs text-slate-500">Agent: {c.user.name}</div> : null}
                     {c.feedbackNote || c.recordingUrl ? (
                       <div className="mt-2 text-xs text-slate-600">
                         {c.feedbackNote}
@@ -148,7 +149,7 @@ export default async function CallsPage({
                       <th className="text-left px-4 py-3">When</th>
                       <th className="text-left px-4 py-3">Lead</th>
                       <th className="text-left px-4 py-3">Number</th>
-                      {role === "MANAGER" ? <th className="text-left px-4 py-3">Agent</th> : null}
+                      {canManage ? <th className="text-left px-4 py-3">Agent</th> : null}
                       <th className="text-left px-4 py-3">Outcome</th>
                       <th className="text-right px-4 py-3">Duration</th>
                       <th className="text-left px-4 py-3">Note</th>
@@ -164,7 +165,7 @@ export default async function CallsPage({
                           <Link href={`/leads/${c.leadId}`} prefetch className="font-medium hover:underline">{c.lead.name}</Link>
                         </td>
                         <td className="px-4 py-3 font-mono text-xs">{c.lead.phone}</td>
-                        {role === "MANAGER" ? <td className="px-4 py-3 text-slate-600">{c.user.name}</td> : null}
+                        {canManage ? <td className="px-4 py-3 text-slate-600">{c.user.name}</td> : null}
                         <td className="px-4 py-3">
                           <OutcomeChip outcome={c.outcome} />
                         </td>
@@ -193,7 +194,7 @@ export default async function CallsPage({
               <tr>
                 <th className="text-left px-4 py-3">Number</th>
                 <th className="text-left px-4 py-3">Lead</th>
-                {role === "MANAGER" ? <th className="text-left px-4 py-3">Assignee</th> : null}
+                {canManage ? <th className="text-left px-4 py-3">Assignee</th> : null}
                 <th className="text-right px-4 py-3">Times called</th>
                 <th className="text-right px-4 py-3">Connected</th>
                 <th className="text-right px-4 py-3">Total talk</th>
@@ -203,14 +204,14 @@ export default async function CallsPage({
             </thead>
             <tbody>
               {byPhone.length === 0 ? (
-                <tr><td colSpan={role === "MANAGER" ? 8 : 7} className="px-4 py-12 text-center text-slate-500">No numbers have been called yet.</td></tr>
+                <tr><td colSpan={canManage ? 8 : 7} className="px-4 py-12 text-center text-slate-500">No numbers have been called yet.</td></tr>
               ) : byPhone.map((p) => (
                 <tr key={p.leadId} className="border-t border-slate-100 hover:bg-slate-50">
                   <td className="px-4 py-3 font-mono">{p.phone}</td>
                   <td className="px-4 py-3">
                     <Link href={`/leads/${p.leadId}`} prefetch className="font-medium hover:underline">{p.name}</Link>
                   </td>
-                  {role === "MANAGER" ? <td className="px-4 py-3 text-slate-600">{p.assignee ?? <span className="text-slate-400">unassigned</span>}</td> : null}
+                  {canManage ? <td className="px-4 py-3 text-slate-600">{p.assignee ?? <span className="text-slate-400">unassigned</span>}</td> : null}
                   <td className="px-4 py-3 text-right tabular-nums font-semibold">{p.total}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-emerald-700">{p.connected}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{formatDuration(p.totalDurationSec)}</td>

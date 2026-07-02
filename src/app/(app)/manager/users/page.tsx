@@ -21,22 +21,32 @@ export default async function UsersPage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  if (session.user.role !== "MANAGER") redirect("/");
+  if (session.user.role !== "ADMIN") redirect("/");
 
   const sp = await searchParams;
-  const users = await prisma.user.findMany({
-    orderBy: [{ active: "desc" }, { role: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, email: true, role: true, phone: true, active: true, createdAt: true },
-  });
+  const [users, managers] = await Promise.all([
+    prisma.user.findMany({
+      orderBy: [{ active: "desc" }, { role: "asc" }, { name: "asc" }],
+      select: {
+        id: true, name: true, email: true, role: true, phone: true, active: true, createdAt: true,
+        manager: { select: { name: true } },
+      },
+    }),
+    prisma.user.findMany({
+      where: { role: "MANAGER", active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
 
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <Link href="/manager" prefetch className="text-sm text-slate-500 hover:text-slate-800">← Manager</Link>
+          <Link href="/manager" prefetch className="text-sm text-slate-500 hover:text-slate-800">← Admin</Link>
           <h1 className="text-2xl font-semibold tracking-tight mt-2">Users</h1>
           <p className="text-slate-500 mt-1 text-sm">
-            Add salespeople and other managers. Each gets their own email + password.
+            Add admins, managers, and salespeople. Assign each salesperson to a manager team.
           </p>
         </div>
       </div>
@@ -77,6 +87,14 @@ Password: ${sp.password}`}
             <select name="role" defaultValue="SALESPERSON" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
               <option value="SALESPERSON">Salesperson</option>
               <option value="MANAGER">Manager</option>
+              <option value="ADMIN">Admin</option>
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Manager (team)</span>
+            <select name="managerId" defaultValue="" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+              <option value="">Unassigned (salesperson only)</option>
+              {managers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </label>
           <Field label="Password" name="password" type="password" required placeholder="At least 8 chars" />
@@ -107,7 +125,12 @@ Password: ${sp.password}`}
                 <span className="shrink-0 inline-flex rounded-full text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 ring-1 bg-slate-100 text-slate-700 ring-slate-200">Disabled</span>
               )}
             </div>
-            <div className="mt-1 text-xs text-slate-500">{u.role}</div>
+            <div className="mt-1 text-xs text-slate-500">
+              {u.role}
+              {u.role === "SALESPERSON" ? (
+                <> · {u.manager?.name ? `Team: ${u.manager.name}` : <span className="text-amber-600">No manager</span>}</>
+              ) : null}
+            </div>
             <div className="mt-3 flex items-center gap-4">
               <form action={generatePasswordAction}>
                 <input type="hidden" name="id" value={u.id} />
@@ -134,6 +157,7 @@ Password: ${sp.password}`}
               <th className="text-left px-4 py-3">Name</th>
               <th className="text-left px-4 py-3">Email</th>
               <th className="text-left px-4 py-3">Role</th>
+              <th className="text-left px-4 py-3">Team</th>
               <th className="text-left px-4 py-3">Phone</th>
               <th className="text-left px-4 py-3">Status</th>
               <th className="text-right px-4 py-3">Actions</th>
@@ -150,6 +174,11 @@ Password: ${sp.password}`}
                 </td>
                 <td className="px-4 py-3 text-slate-700 font-mono text-xs">{u.email}</td>
                 <td className="px-4 py-3 text-slate-700">{u.role}</td>
+                <td className="px-4 py-3 text-slate-700 text-xs">
+                  {u.role === "SALESPERSON"
+                    ? (u.manager?.name ?? <span className="text-amber-600">No manager</span>)
+                    : <span className="text-slate-400">—</span>}
+                </td>
                 <td className="px-4 py-3 text-slate-700 font-mono text-xs">{u.phone ?? "—"}</td>
                 <td className="px-4 py-3">
                   {u.active ? (

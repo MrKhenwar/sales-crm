@@ -9,7 +9,7 @@ import { readSheetRows } from "@/lib/integrations/google-sheets";
 
 export async function importCsvAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user || session.user.role !== "MANAGER") redirect("/");
+  if (!session?.user || session.user.role !== "ADMIN") redirect("/");
 
   let csv = String(formData.get("csv") ?? "").trim();
   const file = formData.get("file") as File | null;
@@ -38,7 +38,7 @@ export async function importCsvAction(formData: FormData): Promise<void> {
 
 export async function syncSheetAction(): Promise<void> {
   const session = await auth();
-  if (!session?.user || session.user.role !== "MANAGER") redirect("/");
+  if (!session?.user || session.user.role !== "ADMIN") redirect("/");
 
   const status = await readSheetRows();
   if (!status.ok) {

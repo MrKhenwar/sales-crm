@@ -1,5 +1,6 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import type { Role } from "@/generated/prisma/enums";
 
 /** Format: "crm_" prefix + 32 random bytes hex-encoded. */
 export function generateToken(): string {
@@ -10,7 +11,7 @@ export function hashToken(plain: string): string {
   return createHash("sha256").update(plain).digest("hex");
 }
 
-export type AuthedUser = { id: string; role: "SALESPERSON" | "MANAGER"; tokenId: string };
+export type AuthedUser = { id: string; role: Role; tokenId: string };
 
 /** Validate a Bearer token from an Authorization header. Touches lastUsedAt. */
 export async function verifyApiToken(bearer: string | null): Promise<AuthedUser | null> {

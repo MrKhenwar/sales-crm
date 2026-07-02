@@ -12,8 +12,9 @@ export async function getSlaMinutes(): Promise<number> {
 
 /**
  * Find every lead that was assigned >SLA min ago and has NOT been connected yet,
- * then emit a one-time SLA_BREACH-style notification to the assignee and to all
- * active managers. We dedupe via the Notification table's leadId+type+userId.
+ * then emit a one-time SLA_BREACH-style notification to the assignee, that
+ * assignee's own manager, and every active admin. We dedupe via the Notification
+ * table's leadId+type+userId.
  */
 export async function runSlaCheck(): Promise<{ checked: number; notified: number }> {
   const slaMin = await getSlaMinutes();
@@ -33,17 +34,31 @@ export async function runSlaCheck(): Promise<{ checked: number; notified: number
 
   if (candidates.length === 0) return { checked: 0, notified: 0 };
 
-  const managers = await prisma.user.findMany({
-    where: { role: "MANAGER", active: true },
+  // Every active admin is alerted for every breach. Each assignee's own manager
+  // is looked up so other managers aren't notified about another team's leads.
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", active: true },
     select: { id: true },
   });
-  const managerIds = managers.map((m) => m.id);
+  const adminIds = admins.map((a) => a.id);
+
+  const assigneeIds = Array.from(
+    new Set(candidates.map((c) => c.assignedToUserId).filter((v): v is string => !!v)),
+  );
+  const assignees = await prisma.user.findMany({
+    where: { id: { in: assigneeIds } },
+    select: { id: true, managerId: true },
+  });
+  const managerByAssignee = new Map(assignees.map((a) => [a.id, a.managerId]));
 
   let notified = 0;
   for (const lead of candidates) {
-    const recipients = new Set<string>();
-    if (lead.assignedToUserId) recipients.add(lead.assignedToUserId);
-    for (const m of managerIds) recipients.add(m);
+    const recipients = new Set<string>(adminIds);
+    if (lead.assignedToUserId) {
+      recipients.add(lead.assignedToUserId);
+      const mgr = managerByAssignee.get(lead.assignedToUserId);
+      if (mgr) recipients.add(mgr);
+    }
 
     for (const userId of recipients) {
       // Dedup: one SLA notification per (lead, user, type=REDIAL_DUE).

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { createLead } from "@/lib/leads/actions";
-import { listActiveSalespeople } from "@/lib/leads/queries";
+import { isManagerOrAdmin, listAssignableSalespeople } from "@/lib/scope";
 
 export default async function NewLeadPage({
   searchParams,
@@ -12,7 +12,8 @@ export default async function NewLeadPage({
   const session = await auth();
   if (!session?.user) redirect("/login");
   const { error } = await searchParams;
-  const salespeople = session.user.role === "MANAGER" ? await listActiveSalespeople() : [];
+  const canManage = isManagerOrAdmin(session.user.role);
+  const salespeople = canManage ? await listAssignableSalespeople(session.user) : [];
 
   return (
     <div className="max-w-xl space-y-6">
@@ -35,7 +36,7 @@ export default async function NewLeadPage({
         <Field label="Email" name="email" type="email" placeholder="optional" />
         <Field label="Campaign" name="campaignName" placeholder="optional" />
 
-        {session.user.role === "MANAGER" ? (
+        {canManage ? (
           <label className="block">
             <span className="text-sm font-medium text-slate-700">Assign to</span>
             <select

@@ -13,14 +13,21 @@ export default async function EditUserPage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  if (session.user.role !== "MANAGER") redirect("/");
+  if (session.user.role !== "ADMIN") redirect("/");
 
   const { id } = await params;
   const sp = await searchParams;
-  const user = await prisma.user.findUnique({
-    where: { id },
-    select: { id: true, name: true, email: true, role: true, phone: true, active: true },
-  });
+  const [user, managers] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, role: true, phone: true, active: true, managerId: true },
+    }),
+    prisma.user.findMany({
+      where: { role: "MANAGER", active: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
   if (!user) notFound();
 
   return (
@@ -47,7 +54,16 @@ export default async function EditUserPage({
           <select name="role" defaultValue={user.role} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
             <option value="SALESPERSON">Salesperson</option>
             <option value="MANAGER">Manager</option>
+            <option value="ADMIN">Admin</option>
           </select>
+        </label>
+        <label className="block text-sm">
+          <span className="font-medium text-slate-700">Manager (team)</span>
+          <select name="managerId" defaultValue={user.managerId ?? ""} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            <option value="">Unassigned (salesperson only)</option>
+            {managers.filter((m) => m.id !== user.id).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+          <span className="mt-1 block text-xs text-slate-400">Only applies when the role is Salesperson.</span>
         </label>
         <div className="flex justify-end pt-2">
           <button type="submit" className="rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-2">Save</button>
