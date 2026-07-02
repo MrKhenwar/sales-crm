@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { MANUAL_LABELS, MANUAL_LABEL_TEXT } from "@/components/Labels";
 
@@ -47,10 +48,15 @@ function initials(name: string): string {
 
 export function AppDrawer({ userName, userEmail, role, unread, signOutAction }: Props) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [section, setSection] = useState<string | null>("leads");
   const isManager = role === "MANAGER" || role === "ADMIN";
   const isAdmin = role === "ADMIN";
   const close = () => setOpen(false);
+
+  // Portal target is only available on the client (standard mount guard).
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setMounted(true); }, []);
 
   // Lock body scroll + close on Escape while open.
   useEffect(() => {
@@ -77,6 +83,10 @@ export function AppDrawer({ userName, userEmail, role, unread, signOutAction }: 
         <Icon path={P.menu} className="w-6 h-6" />
       </button>
 
+      {/* Overlay is portaled to <body> so the sticky, backdrop-blurred header
+          doesn't become its containing block and trap the fixed positioning. */}
+      {mounted ? createPortal(
+        <>
       {/* Backdrop */}
       <div
         onClick={() => setOpen(false)}
@@ -184,6 +194,9 @@ export function AppDrawer({ userName, userEmail, role, unread, signOutAction }: 
           </button>
         </form>
       </aside>
+        </>,
+        document.body,
+      ) : null}
     </>
   );
 }
