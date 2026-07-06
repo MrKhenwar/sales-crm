@@ -22,7 +22,7 @@ export type IngestResult =
 
 const phoneRegex = /^\+\d{8,15}$/;
 
-function normalizePhone(raw: string): string | null {
+export function normalizePhone(raw: string): string | null {
   let p = raw.trim().replace(/[\s\-()]/g, "");
   if (!p.startsWith("+")) {
     const digits = p.replace(/[^\d]/g, "");
@@ -144,6 +144,172 @@ export async function ingestLead(input: IngestInput): Promise<IngestResult> {
   });
 
   return { status: "created", leadId: lead.id, assignedToUserId };
+}
+
+/**
+ * Assign `count` new leads across the teams' salespeople using the same two-level
+ * per-team round-robin as {@link pickRoundRobinAssignee}, but computed in memory
+ * so a whole sheet is distributed with a couple of queries instead of one per row.
+ * Cursor state is loaded once and persisted once so rotation stays continuous
+ * across syncs. Returns an array of assignee ids (or nulls) of length `count`.
+ */
+async function assignRoundRobinBatch(count: number): Promise<(string | null)[]> {
+  if (count <= 0) return [];
+  const mode = await getAutoAssignMode();
+  if (mode !== "round_robin") return new Array(count).fill(null);
+
+  const salespeople = await prisma.user.findMany({
+    where: { role: "SALESPERSON", active: true, managerId: { not: null } },
+    select: { id: true, managerId: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (salespeople.length === 0) return new Array(count).fill(null);
+
+  const teams = new Map<string, string[]>();
+  for (const sp of salespeople) {
+    const mid = sp.managerId as string;
+    const list = teams.get(mid) ?? [];
+    list.push(sp.id);
+    teams.set(mid, list);
+  }
+  const teamIds = Array.from(teams.keys()).sort();
+
+  // Load current cursors for the team-level key + every team key in one query.
+  const keys = ["__TEAMS__", ...teamIds];
+  const rows = await prisma.roundRobinCursor.findMany({ where: { key: { in: keys } } });
+  const cursor = new Map<string, number>(rows.map((r) => [r.key, r.cursor]));
+  const get = (k: string) => cursor.get(k) ?? 0;
+
+  const out: (string | null)[] = [];
+  for (let i = 0; i < count; i++) {
+    const t = get("__TEAMS__") + 1;
+    cursor.set("__TEAMS__", t);
+    const managerId = teamIds[(t - 1) % teamIds.length];
+    const members = teams.get(managerId)!;
+    const m = get(managerId) + 1;
+    cursor.set(managerId, m);
+    out.push(members[(m - 1) % members.length]);
+  }
+
+  // Persist the advanced cursors once.
+  await Promise.all(
+    keys.map((k) =>
+      prisma.roundRobinCursor.upsert({
+        where: { key: k },
+        update: { cursor: get(k) },
+        create: { key: k, cursor: get(k) },
+      }),
+    ),
+  );
+  return out;
+}
+
+export type BulkLeadInput = {
+  name: string;
+  phone: string;
+  email?: string | null;
+  campaignName?: string | null;
+  source: LeadSource;
+  adFormData?: Record<string, unknown> | null;
+};
+
+export type BulkLeadResult = {
+  created: number;
+  duplicates: number;
+  skipped: number;
+  /** phone(E.164) → leadId for every row that resolved to a lead (new or existing). */
+  byPhone: Map<string, string>;
+};
+
+/**
+ * Fast path for importing many rows (sheet sync / CSV). Dedups by phone in a
+ * single query, round-robins new leads in memory, and writes with createMany —
+ * a handful of queries total instead of ~5 per row. Existing leads with no
+ * captured form data get a one-time adFormData backfill so their details show up.
+ */
+export async function bulkIngestLeads(inputs: BulkLeadInput[]): Promise<BulkLeadResult> {
+  const result: BulkLeadResult = { created: 0, duplicates: 0, skipped: 0, byPhone: new Map() };
+
+  // Normalize + drop invalid, keeping the first row per phone.
+  const byPhone = new Map<string, BulkLeadInput>();
+  for (const raw of inputs) {
+    const phone = normalizePhone(raw.phone);
+    const name = (raw.name ?? "").trim();
+    if (!phone || !name) { result.skipped++; continue; }
+    if (!byPhone.has(phone)) byPhone.set(phone, { ...raw, phone, name });
+  }
+  const phones = Array.from(byPhone.keys());
+  if (phones.length === 0) return result;
+
+  // One query: which phones already exist?
+  const existing = await prisma.lead.findMany({
+    where: { phone: { in: phones } },
+    select: { id: true, phone: true, adFormData: true },
+  });
+  const existingByPhone = new Map(existing.map((e) => [e.phone, e]));
+  for (const e of existing) result.byPhone.set(e.phone, e.id);
+
+  const newPhones = phones.filter((p) => !existingByPhone.has(p));
+  const assignees = await assignRoundRobinBatch(newPhones.length);
+
+  if (newPhones.length > 0) {
+    await prisma.lead.createMany({
+      data: newPhones.map((phone, i) => {
+        const row = byPhone.get(phone)!;
+        return {
+          name: row.name,
+          phone,
+          email: row.email || null,
+          source: row.source,
+          campaignName: row.campaignName || null,
+          adFormData: (row.adFormData ?? undefined) as object | undefined,
+          assignedToUserId: assignees[i] ?? null,
+        };
+      }),
+      skipDuplicates: true,
+    });
+
+    // Fetch the ids of everything we just created, then fan out notifications.
+    const created = await prisma.lead.findMany({
+      where: { phone: { in: newPhones } },
+      select: { id: true, phone: true, name: true, assignedToUserId: true },
+    });
+    result.created += created.length;
+    for (const c of created) result.byPhone.set(c.phone, c.id);
+
+    // Notify each assignee. (No AssignmentLog here — sheet ingest has no acting
+    // user, and AssignmentLog.byUserId is required.)
+    const assigned = created.filter((c) => c.assignedToUserId);
+    if (assigned.length > 0) {
+      await prisma.notification.createMany({
+        data: assigned.map((c) => ({
+          userId: c.assignedToUserId as string,
+          type: "NEW_LEAD" as const,
+          leadId: c.id,
+          message: `New lead assigned: ${c.name}`,
+        })),
+      });
+    }
+  }
+
+  // Existing duplicates.
+  result.duplicates += phones.length - newPhones.length;
+
+  // One-time backfill: give already-imported leads their captured details.
+  // Chunked so a big first sync doesn't exhaust the DB connection pool.
+  const toBackfill = existing.filter((e) => e.adFormData == null && byPhone.get(e.phone)?.adFormData);
+  for (let i = 0; i < toBackfill.length; i += 25) {
+    await Promise.all(
+      toBackfill.slice(i, i + 25).map((e) =>
+        prisma.lead.update({
+          where: { id: e.id },
+          data: { adFormData: byPhone.get(e.phone)!.adFormData as object },
+        }),
+      ),
+    );
+  }
+
+  return result;
 }
 
 export type BulkIngestSummary = {

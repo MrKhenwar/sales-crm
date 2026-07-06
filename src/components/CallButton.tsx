@@ -15,12 +15,14 @@ export function CallButton({
   leadId,
   phone,
   sessionId,
+  returnTo,
   compact = false,
   fullWidth = false,
 }: {
   leadId: string;
   phone: string;
   sessionId?: string;
+  returnTo?: string;
   compact?: boolean;
   fullWidth?: boolean;
 }) {
@@ -36,6 +38,7 @@ export function CallButton({
     >
       <input type="hidden" name="leadId" value={leadId} />
       {sessionId ? <input type="hidden" name="sessionId" value={sessionId} /> : null}
+      {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
       <SubmitButton
         className={cls}
         pendingLabel={compact ? "…" : "Calling…"}

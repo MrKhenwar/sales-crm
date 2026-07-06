@@ -46,6 +46,20 @@ export default async function LeadDetailPage({
 
   const applied = new Set<ManualLabel>(lead.labels.map((l) => l.label));
 
+  // Extra fields captured from the sheet/form (weight, time slot, etc.). Split
+  // human-friendly answers from Meta's internal ids, which hide behind "Show all".
+  const formData =
+    lead.adFormData && typeof lead.adFormData === "object" && !Array.isArray(lead.adFormData)
+      ? (lead.adFormData as Record<string, unknown>)
+      : {};
+  const sheetName = typeof formData.__sheet === "string" ? formData.__sheet : null;
+  const NOISE = /^(id|created_time|ad_id|ad_name|adset_id|adset_name|campaign_id|form_id|form_name|is_organic|platform)$/i;
+  const detailEntries = Object.entries(formData).filter(
+    ([k, v]) => !k.startsWith("__") && v != null && String(v).trim() !== "",
+  );
+  const primaryDetails = detailEntries.filter(([k]) => !NOISE.test(k));
+  const metaDetails = detailEntries.filter(([k]) => NOISE.test(k));
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -110,6 +124,41 @@ export default async function LeadDetailPage({
           <p className="mt-3 text-xs text-slate-400">No feedback yet.</p>
         )}
       </section>
+
+      {detailEntries.length > 0 ? (
+        <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-5 sm:p-6">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-medium">Lead details</h2>
+            {sheetName ? (
+              <span className="text-[11px] rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5">{sheetName}</span>
+            ) : null}
+          </div>
+          <p className="text-xs text-slate-500 mt-1">Everything captured from the lead form / sheet.</p>
+          <dl className="mt-4 grid sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            {primaryDetails.map(([k, v]) => (
+              <div key={k} className="min-w-0">
+                <dt className="text-[11px] uppercase tracking-wide text-slate-500">{prettyKey(k)}</dt>
+                <dd className="text-slate-800 break-words whitespace-pre-wrap">{String(v)}</dd>
+              </div>
+            ))}
+          </dl>
+          {metaDetails.length > 0 ? (
+            <details className="mt-4 group">
+              <summary className="cursor-pointer text-xs font-medium text-slate-500 hover:text-slate-700 select-none">
+                Show all fields ({metaDetails.length})
+              </summary>
+              <dl className="mt-3 grid sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                {metaDetails.map(([k, v]) => (
+                  <div key={k} className="min-w-0">
+                    <dt className="text-slate-400">{prettyKey(k)}</dt>
+                    <dd className="text-slate-600 break-words font-mono">{String(v)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          ) : null}
+        </section>
+      ) : null}
 
       <div className="grid md:grid-cols-2 gap-6">
         <section className="rounded-2xl bg-white ring-1 ring-slate-200 p-6">
@@ -187,6 +236,15 @@ export default async function LeadDetailPage({
       ) : null}
     </div>
   );
+}
+
+/** Turn a raw sheet/form header ("what_is_your_current_weight?") into a label. */
+function prettyKey(key: string): string {
+  return key
+    .replace(/[_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\w/, (c) => c.toUpperCase());
 }
 
 async function CallHistory({ leadId }: { leadId: string }) {

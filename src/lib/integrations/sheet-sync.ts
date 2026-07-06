@@ -1,6 +1,6 @@
 import { parseCsv } from "@/lib/csv";
 import { prisma } from "@/lib/prisma";
-import { ingestLead } from "@/lib/leads/ingest";
+import { bulkIngestLeads, normalizePhone, type BulkLeadInput } from "@/lib/leads/ingest";
 import { getSetting, setSetting, SETTING_KEYS } from "@/lib/settings";
 import type { ManualLabel, AutoLabel } from "@/generated/prisma/enums";
 
@@ -118,11 +118,180 @@ export function deriveLabels(text: string): { labels: ManualLabel[]; autoLabel: 
   return { labels: Array.from(labels), autoLabel };
 }
 
+/** True when a Google service account is configured (unlocks multi-tab API sync). */
+function serviceAccount(): { client_email: string; private_key: string } | null {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) return null;
+  try {
+    const j = JSON.parse(raw) as { client_email?: string; private_key?: string };
+    if (j.client_email && j.private_key) return { client_email: j.client_email, private_key: j.private_key };
+  } catch { /* fall through */ }
+  return null;
+}
+
+type Tab = { title: string | null; rows: string[][] };
+
+/**
+ * Read EVERY tab of a spreadsheet via the Sheets API (service account). Returns
+ * each tab with its title + raw rows, so all sub-sheets sync automatically and
+ * every column is available. Returns null when no service account is set or the
+ * API call fails — the caller then falls back to the public CSV export.
+ */
+async function readAllTabsViaApi(id: string): Promise<Tab[] | null> {
+  const creds = serviceAccount();
+  if (!creds) return null;
+  try {
+    const { google } = await import("googleapis");
+    const auth = new google.auth.JWT({
+      email: creds.client_email,
+      key: creds.private_key,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    });
+    const sheets = google.sheets({ version: "v4", auth });
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: id, fields: "sheets.properties(title,sheetId)" });
+    const titles = (meta.data.sheets ?? [])
+      .map((s) => s.properties?.title)
+      .filter((t): t is string => !!t);
+    if (titles.length === 0) return [];
+    const batch = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: id,
+      ranges: titles.map((t) => `'${t.replace(/'/g, "''")}'`),
+    });
+    const ranges = batch.data.valueRanges ?? [];
+    return titles.map((title, i) => ({ title, rows: (ranges[i]?.values ?? []) as string[][] }));
+  } catch {
+    return null;
+  }
+}
+
+const isTestRow = (name: string, phone: string) =>
+  name.startsWith("<test lead") || phone.startsWith("<test lead") || name.toLowerCase() === "test lead";
+
+/**
+ * Ingest one tab's rows: capture every column into the lead's adFormData (so all
+ * the details show up in the CRM), bulk-insert for speed, then apply the labels,
+ * call-state and feedback note derived from the team's disposition columns.
+ * Returns a reason string when the tab can't be processed, else null.
+ */
+async function processTab(tab: Tab, result: SheetSyncResult): Promise<string | null> {
+  const rows = tab.rows;
+  if (rows.length < 2) return "empty";
+  const headers = rows[0];
+  const col = classifyHeaders(headers);
+  if (col.name < 0 || col.phone < 0) return "columns_not_found";
+
+  // Columns already captured elsewhere (first-class fields + the disposition
+  // columns that become the feedback note) are kept out of the free-form
+  // adFormData so the details section isn't redundant.
+  const mappedCols = new Set<number>(
+    [col.name, col.phone, col.email, col.campaign, ...col.disposition].filter((i) => i >= 0),
+  );
+
+  const inputs: BulkLeadInput[] = [];
+  const meta: { phone: string; disposition: string }[] = [];
+
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const name = (row[col.name] ?? "").trim();
+    const phone = cleanPhone(row[col.phone] ?? "");
+    if (!name || !phone) { result.skipped++; continue; }
+    if (isTestRow(name, phone)) { result.skipped++; continue; }
+
+    // Capture every remaining non-empty column as a detail.
+    const adFormData: Record<string, unknown> = {};
+    headers.forEach((h, i) => {
+      if (mappedCols.has(i)) return;
+      const val = (row[i] ?? "").toString().trim();
+      const key = (h ?? "").toString().trim();
+      if (val && key) adFormData[key] = val;
+    });
+    if (tab.title) adFormData.__sheet = tab.title;
+    adFormData.__source = "Google Sheet";
+
+    const disposition = col.disposition.map((i) => (row[i] ?? "").trim()).filter(Boolean).join(" · ");
+
+    inputs.push({
+      name,
+      phone,
+      email: col.email >= 0 ? (row[col.email] || null) : null,
+      campaignName: col.campaign >= 0 ? (row[col.campaign] || null) : null,
+      source: "SHEET",
+      adFormData: Object.keys(adFormData).length > 0 ? adFormData : null,
+    });
+    const norm = normalizePhone(phone);
+    meta.push({ phone: norm ?? "", disposition });
+  }
+
+  if (inputs.length === 0) return null;
+  result.total += inputs.length;
+
+  const ingest = await bulkIngestLeads(inputs);
+  result.created += ingest.created;
+  result.duplicates += ingest.duplicates;
+  result.skipped += ingest.skipped;
+
+  // Batch labels + call-state + feedback notes derived from the disposition text.
+  const labelData: { leadId: string; label: ManualLabel }[] = [];
+  const autoByLead = new Map<AutoLabel, string[]>();
+  const noteCandidates: { leadId: string; body: string }[] = [];
+
+  for (const m of meta) {
+    if (!m.disposition || !m.phone) continue;
+    const leadId = ingest.byPhone.get(m.phone);
+    if (!leadId) continue;
+    const { labels, autoLabel } = deriveLabels(m.disposition);
+    for (const label of labels) labelData.push({ leadId, label });
+    if (autoLabel) autoByLead.set(autoLabel, [...(autoByLead.get(autoLabel) ?? []), leadId]);
+    noteCandidates.push({ leadId, body: m.disposition });
+  }
+
+  if (labelData.length > 0) {
+    const r = await prisma.leadLabel.createMany({ data: labelData, skipDuplicates: true });
+    result.labeled += r.count;
+  }
+  for (const [autoLabel, ids] of autoByLead) {
+    await prisma.lead.updateMany({ where: { id: { in: ids } }, data: { autoLabel } });
+  }
+  if (noteCandidates.length > 0) {
+    const leadIds = Array.from(new Set(noteCandidates.map((n) => n.leadId)));
+    const existing = await prisma.leadNote.findMany({
+      where: { leadId: { in: leadIds } },
+      select: { leadId: true, body: true },
+    });
+    const seen = new Set(existing.map((e) => `${e.leadId}::${e.body}`));
+    const toCreate: { leadId: string; body: string }[] = [];
+    for (const n of noteCandidates) {
+      const key = `${n.leadId}::${n.body}`;
+      if (seen.has(key)) continue;
+      seen.add(key); // also dedup within this batch
+      toCreate.push(n);
+    }
+    if (toCreate.length > 0) {
+      const r = await prisma.leadNote.createMany({ data: toCreate });
+      result.notes += r.count;
+    }
+  }
+  return null;
+}
+
 export async function syncSheetFromUrl(url: string): Promise<SheetSyncResult> {
   const empty: SheetSyncResult = { ok: false, total: 0, created: 0, duplicates: 0, labeled: 0, notes: 0, skipped: 0 };
   const parsed = parseSheetUrl(url);
   if (!parsed) return { ...empty, reason: "bad_url" };
 
+  const result: SheetSyncResult = { ok: true, total: 0, created: 0, duplicates: 0, labeled: 0, notes: 0, skipped: 0 };
+
+  // Preferred path: read every tab via the Sheets API (service account).
+  const tabs = await readAllTabsViaApi(parsed.id);
+  if (tabs) {
+    for (const tab of tabs) {
+      // Skip tabs that aren't lead lists (no name/phone columns) rather than failing.
+      await processTab(tab, result);
+    }
+    return result;
+  }
+
+  // Fallback: public CSV export of the single configured tab.
   let csv: string;
   try {
     const res = await fetch(csvExportUrl(parsed.id, parsed.gid), { cache: "no-store", redirect: "follow" });
@@ -133,66 +302,8 @@ export async function syncSheetFromUrl(url: string): Promise<SheetSyncResult> {
     return { ...empty, reason: "fetch_failed" };
   }
 
-  const rows = parseCsv(csv);
-  if (rows.length < 2) return { ...empty, ok: true };
-  const headers = rows[0];
-  const col = classifyHeaders(headers);
-  if (col.name < 0 || col.phone < 0) return { ...empty, reason: "columns_not_found" };
-
-  const result: SheetSyncResult = { ok: true, total: 0, created: 0, duplicates: 0, labeled: 0, notes: 0, skipped: 0 };
-
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r];
-    const name = (row[col.name] ?? "").trim();
-    const phone = cleanPhone(row[col.phone] ?? "");
-    if (!name || !phone) { result.skipped++; continue; }
-    if (name.startsWith("<test lead") || phone.startsWith("<test lead") || name.toLowerCase() === "test lead") {
-      result.skipped++; continue;
-    }
-    result.total++;
-
-    const disposition = col.disposition
-      .map((i) => (row[i] ?? "").trim())
-      .filter(Boolean)
-      .join(" · ");
-
-    const ingest = await ingestLead({
-      name,
-      phone,
-      email: col.email >= 0 ? (row[col.email] || null) : null,
-      campaignName: col.campaign >= 0 ? (row[col.campaign] || null) : null,
-      source: "SHEET",
-      byUserId: null,
-    });
-    if (ingest.status === "error") { result.skipped++; continue; }
-    if (ingest.status === "created") result.created++;
-    else result.duplicates++;
-    const leadId = ingest.leadId;
-
-    // Labels + call state derived from the team's disposition text.
-    if (disposition) {
-      const { labels, autoLabel } = deriveLabels(disposition);
-      for (const label of labels) {
-        await prisma.leadLabel.upsert({
-          where: { leadId_label: { leadId, label } },
-          update: {},
-          create: { leadId, label },
-        });
-        result.labeled++;
-      }
-      if (autoLabel) {
-        await prisma.lead.update({ where: { id: leadId }, data: { autoLabel } });
-      }
-
-      // Feedback note — only once per identical text so re-syncs don't duplicate.
-      const dup = await prisma.leadNote.findFirst({ where: { leadId, body: disposition }, select: { id: true } });
-      if (!dup) {
-        await prisma.leadNote.create({ data: { leadId, body: disposition } });
-        result.notes++;
-      }
-    }
-  }
-
+  const reason = await processTab({ title: null, rows: parseCsv(csv) }, result);
+  if (reason === "columns_not_found") return { ...empty, reason };
   return result;
 }
 

@@ -9,10 +9,12 @@ export function DirectCallPanel({
   callId,
   lead,
   submitFeedbackAction,
+  returnTo,
 }: {
   callId: string;
   lead: Lead;
   submitFeedbackAction: (formData: FormData) => void | Promise<void>;
+  returnTo?: string;
 }) {
   // phase: "ringing" until the lead picks up; "talking" after.
   const [phase, setPhase] = useState<"ringing" | "talking">("ringing");
@@ -82,6 +84,7 @@ export function DirectCallPanel({
 
       <form action={submitFeedbackAction} className="rounded-2xl bg-white ring-1 ring-slate-200 p-6 space-y-5">
         <input type="hidden" name="callId" value={callId} />
+        {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
         {/* ring = time before pick-up (or total ring if never answered); talk = time after pick-up */}
         <input type="hidden" name="ringSec" value={phase === "talking" ? ringSec : elapsed} />
 

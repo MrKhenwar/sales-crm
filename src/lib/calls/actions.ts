@@ -26,6 +26,10 @@ async function getPublicBaseUrl(): Promise<string> {
 export async function startCallForLead(formData: FormData): Promise<void> {
   const user = await requireUser();
   const leadId = String(formData.get("leadId") ?? "");
+  // When called from the dialer we loop back to /dialer instead of the lead page.
+  const returnTo = String(formData.get("returnTo") ?? "");
+  const landing = (id: string, callId: string) =>
+    returnTo === "dialer" ? `/dialer?activeCallId=${callId}` : `/leads/${id}?activeCallId=${callId}`;
   if (!leadId) redirect("/leads");
 
   // One round-trip for the lead, the agent's phone, and any open session.
@@ -77,10 +81,10 @@ export async function startCallForLead(formData: FormData): Promise<void> {
   });
 
   // Direct mode: salesperson dials from their own phone. We just track the row
-  // and drop them on the lead page where they log the outcome.
+  // and drop them where they log the outcome (lead page, or back to the dialer).
   if (mode === "direct") {
     revalidatePath(`/leads/${leadId}`);
-    redirect(`/leads/${leadId}?activeCallId=${call.id}`);
+    redirect(landing(leadId, call.id));
   }
 
   // Twilio / mock — kick off the provider.
@@ -102,12 +106,13 @@ export async function startCallForLead(formData: FormData): Promise<void> {
   }
 
   revalidatePath(`/leads/${leadId}`);
-  redirect(`/leads/${leadId}?activeCallId=${call.id}`);
+  redirect(landing(leadId, call.id));
 }
 
 export async function submitCallFeedback(formData: FormData): Promise<void> {
   const user = await requireUser();
   const callId = String(formData.get("callId") ?? "");
+  const returnTo = String(formData.get("returnTo") ?? "");
   const note = String(formData.get("note") ?? "").trim() || null;
   const labelRaw = String(formData.get("label") ?? "").trim();
   const redialIn = String(formData.get("redialIn") ?? "").trim(); // hours
@@ -177,6 +182,14 @@ export async function submitCallFeedback(formData: FormData): Promise<void> {
     prisma.call.update({ where: { id: callId }, data: callData }),
   ];
 
+  // Mirror the feedback into the lead's notes so it shows up under the lead
+  // (same place manual notes appear).
+  if (note) {
+    writes.push(
+      prisma.leadNote.create({ data: { leadId: call.leadId, userId: user.id, body: note.slice(0, 2000) } }),
+    );
+  }
+
   if (label) {
     writes.push(
       prisma.leadLabel.upsert({
@@ -204,5 +217,6 @@ export async function submitCallFeedback(formData: FormData): Promise<void> {
 
   revalidatePath(`/leads/${call.leadId}`);
   revalidatePath("/leads");
-  redirect(`/leads/${call.leadId}`);
+  // Dialer flow: advance to the next queued lead instead of the lead page.
+  redirect(returnTo === "dialer" ? "/dialer" : `/leads/${call.leadId}`);
 }

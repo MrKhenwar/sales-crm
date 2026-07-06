@@ -24,6 +24,7 @@ function Icon({ path }: { path: string }) {
 
 const ICONS = {
   leads: "M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1",
+  dialer: "M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92ZM15 3h6m0 0v6m0-6-7 7",
   calls: "M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z",
   manager: "M3 3v18h18M7 16l4-6 3 3 5-7",
   inbox: "M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z",
@@ -37,6 +38,7 @@ export function AppNav({ role, userName, unread, signOutAction }: Props) {
 
   const primary: Item[] = [
     { href: "/leads", label: "Leads", icon: <Icon path={ICONS.leads} /> },
+    { href: "/dialer", label: "Dialer", icon: <Icon path={ICONS.dialer} /> },
     { href: "/calls", label: "Calls", icon: <Icon path={ICONS.calls} /> },
     ...(role === "MANAGER"
       ? [
