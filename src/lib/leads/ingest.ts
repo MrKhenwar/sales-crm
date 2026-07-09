@@ -296,16 +296,21 @@ export async function bulkIngestLeads(inputs: BulkLeadInput[]): Promise<BulkLead
   result.duplicates += phones.length - newPhones.length;
 
   // One-time backfill: give already-imported leads their captured details.
-  // Chunked so a big first sync doesn't exhaust the DB connection pool.
+  // Done as a single set-based UPDATE ... FROM (VALUES …) per chunk so a big
+  // first sync is a couple of queries instead of thousands of round-trips.
   const toBackfill = existing.filter((e) => e.adFormData == null && byPhone.get(e.phone)?.adFormData);
-  for (let i = 0; i < toBackfill.length; i += 25) {
-    await Promise.all(
-      toBackfill.slice(i, i + 25).map((e) =>
-        prisma.lead.update({
-          where: { id: e.id },
-          data: { adFormData: byPhone.get(e.phone)!.adFormData as object },
-        }),
-      ),
+  for (let i = 0; i < toBackfill.length; i += 500) {
+    const chunk = toBackfill.slice(i, i + 500);
+    const params: unknown[] = [];
+    const tuples = chunk.map((e, j) => {
+      params.push(e.id, JSON.stringify(byPhone.get(e.phone)!.adFormData));
+      return `($${j * 2 + 1}::text, $${j * 2 + 2}::jsonb)`;
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Lead" AS l SET "adFormData" = v.data
+       FROM (VALUES ${tuples.join(",")}) AS v(id, data)
+       WHERE l.id = v.id`,
+      ...params,
     );
   }
 

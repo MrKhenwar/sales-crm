@@ -2,7 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { runSheetSyncNow } from "@/lib/leads/settings-actions";
+
+type SyncResult = {
+  ok: boolean;
+  reason?: string;
+  created: number;
+  duplicates: number;
+  labeled: number;
+  notes: number;
+};
 
 const REASON_TEXT: Record<string, string> = {
   not_configured: "No sheet link saved yet — add one in Manager → Settings.",
@@ -26,7 +34,13 @@ export function SyncButton({ className, compact = false }: { className?: string;
   function onClick() {
     setMsg(null);
     startTransition(async () => {
-      const r = await runSheetSyncNow();
+      let r: SyncResult;
+      try {
+        const res = await fetch("/api/sync/sheet", { method: "POST" });
+        r = (await res.json()) as SyncResult;
+      } catch {
+        r = { ok: false, reason: "fetch_failed", created: 0, duplicates: 0, labeled: 0, notes: 0 };
+      }
       if (r.ok) {
         setMsg({
           ok: true,
