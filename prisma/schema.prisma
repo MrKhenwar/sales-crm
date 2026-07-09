@@ -1,8 +1,9 @@
 // CRM data model — covers all 6 phases. Only User is exercised in Phase 1.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {

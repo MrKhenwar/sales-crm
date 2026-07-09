@@ -39,6 +39,7 @@ export async function getActiveCallForUser(userId: string) {
   return prisma.call.findFirst({
     where: { userId, feedbackNote: null, endedAt: { not: null } },
     orderBy: { startedAt: "desc" },
+    relationLoadStrategy: "join",
     include: {
       lead: { select: { id: true, name: true, phone: true } },
     },
@@ -48,6 +49,7 @@ export async function getActiveCallForUser(userId: string) {
 export async function getCallById(id: string) {
   return prisma.call.findUnique({
     where: { id },
+    relationLoadStrategy: "join",
     include: { lead: { select: { id: true, name: true, phone: true } } },
   });
 }
@@ -139,6 +141,7 @@ export async function listCallLogs(opts: {
   const [items, totals] = await Promise.all([
     prisma.call.findMany({
       where, orderBy: { startedAt: "desc" }, take, skip,
+      relationLoadStrategy: "join",
       include: {
         lead: { select: { id: true, name: true, phone: true } },
         user: { select: { id: true, name: true } },
@@ -180,6 +183,7 @@ export async function listCallsByPhone(opts: {
 
   const leads = await prisma.lead.findMany({
     where,
+    relationLoadStrategy: "join",
     select: {
       id: true,
       name: true,
@@ -269,6 +273,7 @@ export async function listActiveCalls(opts: { userId: string; role: Role }) {
   return prisma.call.findMany({
     where,
     orderBy: { startedAt: "asc" },
+    relationLoadStrategy: "join",
     include: {
       user: { select: { id: true, name: true } },
       lead: { select: { id: true, name: true, phone: true } },
