@@ -263,9 +263,19 @@ async function distributeLeads(opts: {
 
   if (moves.length === 0) return 0;
 
+  // Group by target so we issue one updateMany per salesperson instead of one
+  // UPDATE per lead — a handful of statements even for hundreds of leads (which
+  // otherwise times out on serverless).
+  const idsByTarget = new Map<string, string[]>();
+  for (const m of moves) {
+    const list = idsByTarget.get(m.to) ?? [];
+    list.push(m.leadId);
+    idsByTarget.set(m.to, list);
+  }
+
   await prisma.$transaction([
-    ...moves.map((m) =>
-      prisma.lead.update({ where: { id: m.leadId }, data: { assignedToUserId: m.to } }),
+    ...Array.from(idsByTarget.entries()).map(([to, ids]) =>
+      prisma.lead.updateMany({ where: { id: { in: ids } }, data: { assignedToUserId: to } }),
     ),
     prisma.assignmentLog.createMany({
       data: moves.map((m) => ({ leadId: m.leadId, toUserId: m.to, byUserId, reason })),
