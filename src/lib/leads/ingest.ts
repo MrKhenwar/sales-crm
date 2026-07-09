@@ -44,39 +44,20 @@ async function bumpCursor(key: string): Promise<number> {
 }
 
 /**
- * Per-team round-robin. New leads rotate across teams (managers who own at least
- * one active salesperson), and within the chosen team rotate across that team's
- * active salespeople. Salespeople with no manager are excluded — a lead assigned
- * to them would be invisible to every manager. Returns null when no eligible
- * team/salesperson exists (the lead stays in the admin-only unassigned pool).
+ * Round-robin across ALL active salespeople — leads are auto-distributed to
+ * everybody as they arrive, no manual assignment needed. Managers see the ones
+ * that land on their team and can reshuffle. Returns null only when there are no
+ * active salespeople at all.
  */
 async function pickRoundRobinAssignee(): Promise<string | null> {
-  // Active salespeople who belong to a manager, grouped into teams.
   const salespeople = await prisma.user.findMany({
-    where: { role: "SALESPERSON", active: true, managerId: { not: null } },
-    select: { id: true, managerId: true },
+    where: { role: "SALESPERSON", active: true },
+    select: { id: true },
     orderBy: { createdAt: "asc" },
   });
   if (salespeople.length === 0) return null;
-
-  // Group by managerId, preserving a stable (createdAt) order within each team.
-  const teams = new Map<string, string[]>();
-  for (const sp of salespeople) {
-    const mid = sp.managerId as string;
-    const list = teams.get(mid) ?? [];
-    list.push(sp.id);
-    teams.set(mid, list);
-  }
-  const teamIds = Array.from(teams.keys()).sort(); // stable ordering across calls
-
-  // Level 1: pick the next team.
-  const teamCursor = await bumpCursor("__TEAMS__");
-  const managerId = teamIds[(teamCursor - 1) % teamIds.length];
-
-  // Level 2: pick the next salesperson within that team.
-  const members = teams.get(managerId)!;
-  const memberCursor = await bumpCursor(managerId);
-  return members[(memberCursor - 1) % members.length];
+  const cursor = await bumpCursor("__ALL__");
+  return salespeople[(cursor - 1) % salespeople.length].id;
 }
 
 export async function ingestLead(input: IngestInput): Promise<IngestResult> {
@@ -147,11 +128,11 @@ export async function ingestLead(input: IngestInput): Promise<IngestResult> {
 }
 
 /**
- * Assign `count` new leads across the teams' salespeople using the same two-level
- * per-team round-robin as {@link pickRoundRobinAssignee}, but computed in memory
- * so a whole sheet is distributed with a couple of queries instead of one per row.
- * Cursor state is loaded once and persisted once so rotation stays continuous
- * across syncs. Returns an array of assignee ids (or nulls) of length `count`.
+ * Assign `count` leads across ALL active salespeople in a flat round-robin,
+ * computed in memory so a whole sheet is distributed with a couple of queries
+ * instead of one per row. The cursor is loaded once and persisted once so
+ * rotation stays continuous across syncs. Returns an array of assignee ids (or
+ * nulls when there are no active salespeople) of length `count`.
  */
 async function assignRoundRobinBatch(count: number): Promise<(string | null)[]> {
   if (count <= 0) return [];
@@ -159,48 +140,24 @@ async function assignRoundRobinBatch(count: number): Promise<(string | null)[]> 
   if (mode !== "round_robin") return new Array(count).fill(null);
 
   const salespeople = await prisma.user.findMany({
-    where: { role: "SALESPERSON", active: true, managerId: { not: null } },
-    select: { id: true, managerId: true },
+    where: { role: "SALESPERSON", active: true },
+    select: { id: true },
     orderBy: { createdAt: "asc" },
   });
   if (salespeople.length === 0) return new Array(count).fill(null);
 
-  const teams = new Map<string, string[]>();
-  for (const sp of salespeople) {
-    const mid = sp.managerId as string;
-    const list = teams.get(mid) ?? [];
-    list.push(sp.id);
-    teams.set(mid, list);
-  }
-  const teamIds = Array.from(teams.keys()).sort();
-
-  // Load current cursors for the team-level key + every team key in one query.
-  const keys = ["__TEAMS__", ...teamIds];
-  const rows = await prisma.roundRobinCursor.findMany({ where: { key: { in: keys } } });
-  const cursor = new Map<string, number>(rows.map((r) => [r.key, r.cursor]));
-  const get = (k: string) => cursor.get(k) ?? 0;
-
+  const row = await prisma.roundRobinCursor.findUnique({ where: { key: "__ALL__" } });
+  let cursor = row?.cursor ?? 0;
   const out: (string | null)[] = [];
   for (let i = 0; i < count; i++) {
-    const t = get("__TEAMS__") + 1;
-    cursor.set("__TEAMS__", t);
-    const managerId = teamIds[(t - 1) % teamIds.length];
-    const members = teams.get(managerId)!;
-    const m = get(managerId) + 1;
-    cursor.set(managerId, m);
-    out.push(members[(m - 1) % members.length]);
+    cursor++;
+    out.push(salespeople[(cursor - 1) % salespeople.length].id);
   }
-
-  // Persist the advanced cursors once.
-  await Promise.all(
-    keys.map((k) =>
-      prisma.roundRobinCursor.upsert({
-        where: { key: k },
-        update: { cursor: get(k) },
-        create: { key: k, cursor: get(k) },
-      }),
-    ),
-  );
+  await prisma.roundRobinCursor.upsert({
+    where: { key: "__ALL__" },
+    update: { cursor },
+    create: { key: "__ALL__", cursor },
+  });
   return out;
 }
 
@@ -244,13 +201,21 @@ export async function bulkIngestLeads(inputs: BulkLeadInput[]): Promise<BulkLead
   // One query: which phones already exist?
   const existing = await prisma.lead.findMany({
     where: { phone: { in: phones } },
-    select: { id: true, phone: true, adFormData: true },
+    select: { id: true, phone: true, adFormData: true, assignedToUserId: true },
   });
   const existingByPhone = new Map(existing.map((e) => [e.phone, e]));
   for (const e of existing) result.byPhone.set(e.phone, e.id);
 
   const newPhones = phones.filter((p) => !existingByPhone.has(p));
-  const assignees = await assignRoundRobinBatch(newPhones.length);
+  // Leads already in the DB but still sitting in the unassigned pool — hand them
+  // out too, so a sync clears the backlog automatically (no manual assign).
+  const unassignedExisting = existing.filter((e) => e.assignedToUserId === null);
+
+  // One round-robin pass covers both new leads and the unassigned backlog, so the
+  // whole batch is spread evenly across everybody in a single continuous rotation.
+  const assignees = await assignRoundRobinBatch(newPhones.length + unassignedExisting.length);
+  const newAssignees = assignees.slice(0, newPhones.length);
+  const backlogAssignees = assignees.slice(newPhones.length);
 
   if (newPhones.length > 0) {
     await prisma.lead.createMany({
@@ -263,7 +228,7 @@ export async function bulkIngestLeads(inputs: BulkLeadInput[]): Promise<BulkLead
           source: row.source,
           campaignName: row.campaignName || null,
           adFormData: (row.adFormData ?? undefined) as object | undefined,
-          assignedToUserId: assignees[i] ?? null,
+          assignedToUserId: newAssignees[i] ?? null,
         };
       }),
       skipDuplicates: true,
@@ -290,6 +255,33 @@ export async function bulkIngestLeads(inputs: BulkLeadInput[]): Promise<BulkLead
         })),
       });
     }
+  }
+
+  // Assign the pre-existing unassigned backlog: group by target and issue one
+  // updateMany per salesperson (a handful of statements even for a big backlog).
+  const backlogMoves = unassignedExisting
+    .map((e, i) => ({ leadId: e.id, to: backlogAssignees[i] }))
+    .filter((m): m is { leadId: string; to: string } => Boolean(m.to));
+  if (backlogMoves.length > 0) {
+    const idsByTarget = new Map<string, string[]>();
+    for (const m of backlogMoves) {
+      const list = idsByTarget.get(m.to) ?? [];
+      list.push(m.leadId);
+      idsByTarget.set(m.to, list);
+    }
+    await prisma.$transaction([
+      ...Array.from(idsByTarget.entries()).map(([to, ids]) =>
+        prisma.lead.updateMany({ where: { id: { in: ids } }, data: { assignedToUserId: to } }),
+      ),
+      prisma.notification.createMany({
+        data: backlogMoves.map((m) => ({
+          userId: m.to,
+          type: "NEW_LEAD" as const,
+          leadId: m.leadId,
+          message: "A lead was assigned to you",
+        })),
+      }),
+    ]);
   }
 
   // Existing duplicates.
