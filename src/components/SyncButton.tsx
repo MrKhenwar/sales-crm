@@ -42,9 +42,14 @@ export function SyncButton({ className, compact = false }: { className?: string;
         r = { ok: false, reason: "fetch_failed", created: 0, duplicates: 0, labeled: 0, notes: 0 };
       }
       if (r.ok) {
+        // ok=true can still be a *partial* success — one of several sheets failed.
+        // Surface it so a mis-shared sheet doesn't silently stop syncing.
+        const warn = r.reason
+          ? ` ⚠ One sheet couldn't be read (${REASON_TEXT[r.reason] ?? r.reason}). Share it with the service account.`
+          : "";
         setMsg({
-          ok: true,
-          text: `Synced: ${r.created} new · ${r.duplicates} existing · ${r.labeled} labels · ${r.notes} notes.`,
+          ok: !r.reason,
+          text: `Synced: ${r.created} new · ${r.duplicates} existing · ${r.labeled} labels · ${r.notes} notes.${warn}`,
         });
         router.refresh();
       } else {
